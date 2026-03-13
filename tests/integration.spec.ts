@@ -1,8 +1,8 @@
 /**
  * Integration tests for lengcat-vst against a real VS Code server.
  *
- * These tests download and run an actual VS Code web server (bundled inside
- * the code-server npm package) and verify that:
+ * These tests start an actual VS Code web server using the code-server binary
+ * (from https://github.com/coder/code-server) and verify that:
  *
  *  1. The proxy (HTTP) correctly forwards requests from the browser to VS Code.
  *  2. VS Code's HTML shell, static assets, and WebSocket-based extension host
@@ -17,12 +17,15 @@
  *  6. The VS Code workbench actually renders (`.monaco-workbench` element is
  *     visible) confirming the full UI is up, not just the HTML shell.
  *
- * On first run the VS Code server is downloaded (~49 MB) and cached in
- * /tmp/lengcat-vst-vscode-server so subsequent runs are fast.
+ * On first run the code-server binary is downloaded (~50 MB) and cached in
+ * ~/.lengcat-vst/code-server/ so subsequent runs are fast.
  *
- * The tests use a non-standard but publicly available entry point
- * (server-main.js from the code-server package) so no local VS Code IDE
- * installation is required.
+ * For offline / poor-network usage: place the tarball at
+ *   ~/.lengcat-vst/code-server/code-server-<version>-<platform>-<arch>.tar.gz
+ * and the tool will detect and extract it without downloading.
+ *
+ * For focused code-server + session manager integration tests, see:
+ *   tests/code-server-integration.spec.ts
  */
 
 import * as path from 'path';

@@ -229,10 +229,7 @@ export function renderDashboard(): string {
     <div class="form-group">
       <label>Backend type</label>
       <select id="new-type">
-        <option value="vscodium">VSCodium (codium / ~/.vscodium-server)</option>
         <option value="vscode">VS Code (code / ~/.vscode-server)</option>
-        <option value="lingma">Lingma</option>
-        <option value="qoder">Qoder</option>
         <option value="custom">Custom executable</option>
       </select>
     </div>
@@ -528,8 +525,8 @@ export function renderDashboard(): string {
   }
   newType.addEventListener('change', () => {
     newExeGroup.style.display = newType.value === 'custom' ? 'block' : 'none';
-    const defaults = { vscodium: 8000, vscode: 8000, lingma: 8080, qoder: 8080, custom: 8000 };
-    newPort.value = defaults[newType.value] || 8000;
+    const defaults = { vscode: 8000, custom: 8000 };
+    newPort.value = String(defaults[newType.value] || 8000);
   });
 
   // ── Launch-with-folder modal ─────────────────────────────────

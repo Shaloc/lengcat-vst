@@ -3,7 +3,6 @@ import {
   buildBackendConfig,
   loadConfig,
   mergeConfig,
-  BackendType,
 } from '../src/config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -16,32 +15,17 @@ describe('defaultConfig', () => {
     expect(cfg.port).toBe(3000);
     expect(cfg.auth).toBe(false);
     expect(cfg.backends).toHaveLength(1);
-    expect(cfg.backends[0].type).toBe('vscodium');
+    expect(cfg.backends[0].type).toBe('vscode');
   });
 });
 
 describe('buildBackendConfig', () => {
-  it('fills defaults for vscodium', () => {
-    const bc = buildBackendConfig({ type: 'vscodium' });
+  it('fills defaults for vscode', () => {
+    const bc = buildBackendConfig({ type: 'vscode' });
     expect(bc.host).toBe('localhost');
     expect(bc.port).toBe(8000);
     expect(bc.tls).toBe(false);
     expect(bc.tokenSource).toBe('none');
-  });
-
-  it('fills default port for lingma', () => {
-    const bc = buildBackendConfig({ type: 'lingma' });
-    expect(bc.port).toBe(8080);
-  });
-
-  it('fills default port for qoder', () => {
-    const bc = buildBackendConfig({ type: 'qoder' });
-    expect(bc.port).toBe(8080);
-  });
-
-  it('fills default port for vscode', () => {
-    const bc = buildBackendConfig({ type: 'vscode' });
-    expect(bc.port).toBe(8000);
   });
 
   it('overrides defaults with provided values', () => {
@@ -86,9 +70,9 @@ describe('mergeConfig', () => {
 
   it('merges backend list', () => {
     const cfg = mergeConfig({
-      backends: [{ type: 'lingma' as BackendType, host: 'remotehost', port: 9090, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: 'remotehost', port: 9090, tls: false, tokenSource: 'none' }],
     });
-    expect(cfg.backends[0].type).toBe('lingma');
+    expect(cfg.backends[0].type).toBe('vscode');
     expect(cfg.backends[0].host).toBe('remotehost');
     expect(cfg.backends[0].port).toBe(9090);
   });
@@ -98,7 +82,7 @@ describe('loadConfig', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vscodium-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-proxy-test-'));
   });
 
   afterEach(() => {

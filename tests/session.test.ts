@@ -11,7 +11,7 @@ beforeEach(() => { _resetCounter(); });
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeConfig(port = 8000) {
-  return buildBackendConfig({ type: 'vscodium', host: '127.0.0.1', port });
+  return buildBackendConfig({ type: 'vscode', host: '127.0.0.1', port });
 }
 
 // ── register ─────────────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ describe('SessionManager.register', () => {
     const s = mgr.register(makeConfig());
     expect(s.id).toBe('s1');
     expect(s.status).toBe('stopped');
-    expect(s.type).toBe('vscodium');
+    expect(s.type).toBe('vscode');
     expect(s.port).toBe(8000);
   });
 
@@ -174,7 +174,7 @@ describe('SessionManager.launch (mocked spawn)', () => {
     const { SessionManager: SM, _resetCounter: rc } = await import('../src/session');
     rc();
     const mgr = new SM();
-    const cfg = buildBackendConfig({ type: 'vscodium', port: 8000 });
+    const cfg = buildBackendConfig({ type: 'vscode', port: 8000 });
     const s = mgr.register(cfg);
 
     await expect(mgr.launch(s.id)).rejects.toThrow('spawn failed');
@@ -200,7 +200,7 @@ describe('SessionManager.launch (mocked spawn)', () => {
     const { SessionManager: SM, _resetCounter: rc } = await import('../src/session');
     rc();
     const mgr = new SM();
-    const cfg = buildBackendConfig({ type: 'vscodium', port: 8000 });
+    const cfg = buildBackendConfig({ type: 'vscode', port: 8000 });
     const s = mgr.register(cfg);
 
     await mgr.launch(s.id, '/home/user/project');

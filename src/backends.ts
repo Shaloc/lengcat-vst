@@ -1,25 +1,22 @@
 /**
- * Backend process management for different VS Code server variants.
+ * Backend process management for VS Code server variants.
  *
- * This module knows how to detect and optionally start a backend VS Code
- * serve-web process for each supported variant type.
+ * For `type === 'vscode'` the backend is always started via the managed
+ * code-server binary (installed by ensureCodeServer from download.ts).
+ * For `type === 'custom'` the caller-supplied executable is used.
  */
 
-import * as fs from 'fs';
-import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
+import * as http from 'http';
 import { ChildProcess, spawn } from 'child_process';
 import { BackendConfig, BackendType } from './config';
-import { ensureDownloadedServer } from './download';
+import { ensureCodeServer } from './download';
 
 /** Executable names (on PATH) for each supported backend type. */
 const EXECUTABLES: Record<BackendType, string> = {
-  vscode: 'code',
-  vscodium: 'codium',
-  lingma: 'lingma',
-  qoder: 'qoder',
-  custom: '', // resolved from BackendConfig.executable
+  vscode: 'code',  // kept for resolveExecutable; startBackend uses ensureCodeServer
+  custom: '',      // resolved from BackendConfig.executable
 };
 
 /** Result of resolving the executable path for a backend. */
@@ -31,72 +28,16 @@ export interface BackendExecutable {
 }
 
 /**
- * Searches for a VS Code-flavour server binary installed in the user's home
- * directory by the Remote-SSH extension (or a VSCodium equivalent).
- *
- * Checked locations, newest-first:
- *  - ~/.vscode-server/cli/servers/Stable-<hash>/server/bin/code-server
- *  - ~/.vscode-server/bin/<hash>/bin/code-server  (legacy Remote-SSH layout)
- *
- * Returns `undefined` when nothing is found.
- */
-export function findServerBinaryInHomeDir(
-  type: 'vscode' | 'vscodium'
-): string | undefined {
-  const serverDirName =
-    type === 'vscode' ? '.vscode-server' : '.vscodium-server';
-  const serverRoot = path.join(os.homedir(), serverDirName);
-  const binName = type === 'vscode' ? 'code-server' : 'codium-server';
-
-  // CLI-style install (newer): Stable-<hash>/server/bin/<binName>
-  const cliServersDir = path.join(serverRoot, 'cli', 'servers');
-  if (fs.existsSync(cliServersDir)) {
-    try {
-      const entries = fs
-        .readdirSync(cliServersDir)
-        .filter((e) => /^Stable-/.test(e))
-        .sort()
-        .reverse();
-      for (const entry of entries) {
-        const candidate = path.join(
-          cliServersDir,
-          entry,
-          'server',
-          'bin',
-          binName
-        );
-        if (fs.existsSync(candidate)) return candidate;
-      }
-    } catch {
-      /* directory not readable – skip */
-    }
-  }
-
-  // Legacy Remote-SSH style: bin/<hash>/bin/<binName>
-  const legacyBinDir = path.join(serverRoot, 'bin');
-  if (fs.existsSync(legacyBinDir)) {
-    try {
-      const entries = fs.readdirSync(legacyBinDir).sort().reverse();
-      for (const entry of entries) {
-        const candidate = path.join(legacyBinDir, entry, 'bin', binName);
-        if (fs.existsSync(candidate)) return candidate;
-      }
-    } catch {
-      /* directory not readable – skip */
-    }
-  }
-
-  return undefined;
-}
-
-/**
  * Resolves the executable and default CLI args needed to start a given
  * backend in serve-web mode.
  *
  * When `config.extensionHostOnly` is true the `serve-web` subcommand is
- * omitted — the binary is already the VS Code server (e.g. a
- * `~/.vscode-server` Remote-SSH installation) and does not accept that
- * subcommand.
+ * omitted — the binary is already the VS Code server and does not accept
+ * that subcommand.
+ *
+ * Note: for `type === 'vscode'`, `startBackend` bypasses this function and
+ * uses the managed code-server binary instead.  This function is primarily
+ * used for `type === 'custom'`.
  */
 export function resolveExecutable(config: BackendConfig): BackendExecutable {
   let command: string;
@@ -132,6 +73,37 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
   }
 
   return { command, args };
+}
+
+/**
+ * Builds the CLI arguments for starting code-server (from
+ * https://github.com/coder/code-server) with the settings from `config`.
+ *
+ * code-server uses a different argument format from VS Code's `serve-web`:
+ *   --bind-addr HOST:PORT  (combined, not separate --host / --port)
+ *   --auth none            (instead of --without-connection-token)
+ *   --base-path PREFIX     (instead of --server-base-path)
+ */
+export function buildCodeServerArgs(config: BackendConfig): string[] {
+  const host = config.host === 'localhost' ? '127.0.0.1' : config.host;
+  // Each session gets its own user-data and extensions directories so
+  // multiple sessions don't share VS Code state or conflict with each other.
+  const sessionDir = path.join(
+    os.homedir(),
+    '.lengcat-vst',
+    'sessions',
+    `${host}-${config.port}`
+  );
+  const args: string[] = [
+    '--bind-addr', `${host}:${config.port}`,
+    '--auth', 'none',
+    '--user-data-dir', path.join(sessionDir, 'data'),
+    '--extensions-dir', path.join(sessionDir, 'extensions'),
+  ];
+  // Note: code-server does not support a --base-path / --server-base-path flag.
+  // Path prefix routing is handled by the lengcat-vst proxy, which strips the
+  // prefix before forwarding requests to code-server (see server.ts).
+  return args;
 }
 
 /** A running managed backend process. */
@@ -266,69 +238,40 @@ async function waitForBackendReady(
 }
 
 /**
- * Spawns a backend VS Code serve-web process for the given configuration.
+ * Spawns a backend process for the given configuration.
  *
- * Fallback chain (for vscode / vscodium types on ENOENT):
- *   1. Primary executable on PATH (or BackendConfig.executable).
- *   2. Server binary installed by Remote-SSH in ~/.vscode-server /
- *      ~/.vscodium-server.
- *   3. Automatically downloads the VS Code server bundled in the code-server
- *      npm package (~49 MB, cached in $TMPDIR/lengcat-vst-vscode-server).
+ * For `type === 'vscode'`:
+ *   Uses the managed code-server binary (https://github.com/coder/code-server).
+ *   The binary is installed on demand via `ensureCodeServer` the first time
+ *   it is needed and cached in ~/.lengcat-vst/code-server/ thereafter.
+ *
+ * For `type === 'custom'`:
+ *   Uses the caller-supplied executable path via `resolveExecutable`.
  *
  * The function only resolves once the backend is confirmed to be accepting
  * HTTP connections (readiness poll with a 30 s timeout).
  *
  * @returns A Promise that resolves to a ManagedBackend handle.
- * @throws  When no working executable can be found or the backend doesn't
- *          become ready in time.
+ * @throws  When the binary cannot be started or the backend doesn't become
+ *          ready in time.
  */
 export async function startBackend(config: BackendConfig): Promise<ManagedBackend> {
-  const { command, args } = resolveExecutable(config);
-
-  try {
-    const managed = await trySpawn(command, args, config);
+  if (config.type === 'vscode') {
+    // Always use the managed code-server binary for VS Code.
+    const binPath = await ensureCodeServer((msg) => {
+      process.stderr.write(`[lengcat-vst] ${msg}\n`);
+    });
+    const args = buildCodeServerArgs(config);
+    const managed = await trySpawn(binPath, args, config);
     await waitForBackendReady(managed);
     return managed;
-  } catch (primaryErr) {
-    const errnoErr = primaryErr as NodeJS.ErrnoException;
-
-    // On ENOENT for known types, try home-directory server binaries.
-    // These binaries don't use the 'serve-web' subcommand, so re-resolve
-    // with extensionHostOnly: true to get the right arg list.
-    if (
-      errnoErr.code === 'ENOENT' &&
-      (config.type === 'vscode' || config.type === 'vscodium')
-    ) {
-      const fallbackBin = findServerBinaryInHomeDir(config.type);
-      if (fallbackBin) {
-        const fallbackConfig: BackendConfig = { ...config, extensionHostOnly: true };
-        const { args: fallbackArgs } = resolveExecutable(fallbackConfig);
-        const managed = await trySpawn(fallbackBin, fallbackArgs, fallbackConfig);
-        await waitForBackendReady(managed);
-        return managed;
-      }
-
-      // ── Final fallback: auto-download the VS Code server ──────────────────
-      // Neither the primary binary nor any home-directory installation was
-      // found.  Download the VS Code server bundled inside the code-server
-      // npm package and run it via Node.js.
-      const { entryPoint, cwd } = await ensureDownloadedServer();
-      const downloadedConfig: BackendConfig = { ...config, extensionHostOnly: true };
-      const { args: downloadedArgs } = resolveExecutable(downloadedConfig);
-      // code-server's bundled VS Code server requires this flag.
-      downloadedArgs.push('--accept-server-license-terms');
-      const managed = await trySpawn(
-        process.execPath,               // run with the current Node.js binary
-        [entryPoint, ...downloadedArgs],
-        downloadedConfig,
-        cwd
-      );
-      await waitForBackendReady(managed);
-      return managed;
-    }
-
-    throw primaryErr;
   }
+
+  // type === 'custom': use the caller-configured executable.
+  const { command, args } = resolveExecutable(config);
+  const managed = await trySpawn(command, args, config);
+  await waitForBackendReady(managed);
+  return managed;
 }
 
 /**

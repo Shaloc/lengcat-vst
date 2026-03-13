@@ -42,10 +42,7 @@ describe('renderDashboard', () => {
   });
 
   it('references all expected backend types in the new-session form', () => {
-    expect(html).toContain('value="vscodium"');
     expect(html).toContain('value="vscode"');
-    expect(html).toContain('value="lingma"');
-    expect(html).toContain('value="qoder"');
     expect(html).toContain('value="custom"');
   });
 

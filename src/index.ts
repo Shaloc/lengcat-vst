@@ -4,12 +4,13 @@
  *
  * Usage:
  *   lengcat-vst [options]
+ *   lengcat-vst install [--version <v>] [--check]
  *
  * Options:
  *   --config <path>         Path to JSON config file
  *   --port <port>           Local proxy port (default: 3000)
  *   --host <host>           Local proxy bind address (default: 127.0.0.1)
- *   --backend-type <t>      Backend type: vscode|vscodium|lingma|qoder|custom
+ *   --backend-type <t>      Backend type: vscode|custom
  *   --backend-host <h>      Backend host (default: localhost)
  *   --backend-port <p>      Backend port
  *   --path-prefix <p>       Path prefix for the backend
@@ -21,6 +22,9 @@
  *   --tls-cert <path>       Path to TLS certificate PEM file
  *   --tls-key <path>        Path to TLS private-key PEM file
  *   --launch                Auto-launch each configured backend before proxying
+ *
+ * Subcommands:
+ *   install                 Install or update the code-server binary
  */
 
 import { Command } from 'commander';
@@ -28,6 +32,14 @@ import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfi
 import { createTunnelServer } from './server';
 import { SessionManager } from './session';
 import { loadOrGenerateTls, tlsCertCachePath } from './tls';
+import {
+  ensureCodeServer,
+  installedCodeServerVersion,
+  fetchLatestCodeServerVersion,
+  installCodeServer,
+  CODE_SERVER_CACHE_DIR,
+  localTarballPath,
+} from './download';
 
 const program = new Command();
 
@@ -44,8 +56,8 @@ program
   .option('--host <host>', 'local proxy bind address', '127.0.0.1')
   .option(
     '--backend-type <type>',
-    'backend type: vscode | vscodium | lingma | qoder | custom',
-    'vscodium'
+    'backend type: vscode | custom',
+    'vscode'
   )
   .option('--backend-host <host>', 'backend server host', 'localhost')
   .option('--backend-port <port>', 'backend server port')
@@ -79,24 +91,45 @@ program
     'automatically start each configured backend VS Code/VSCodium server'
   );
 
-program.parse(process.argv);
-const opts = program.opts<{
-  config?: string;
-  port: string;
-  host: string;
-  backendType: string;
-  backendHost: string;
-  backendPort?: string;
-  pathPrefix?: string;
-  token?: string;
-  backendToken?: string;
-  folder?: string;
-  extensionHostOnly?: boolean;
-  https: boolean;        // commander turns --no-https into https: false
-  tlsCert?: string;
-  tlsKey?: string;
-  launch?: boolean;
-}>();
+// Only parse proxy options when not running the install subcommand.
+if (process.argv[2] !== 'install') {
+  program.parse(process.argv);
+}
+const opts = process.argv[2] !== 'install'
+  ? program.opts<{
+      config?: string;
+      port: string;
+      host: string;
+      backendType: string;
+      backendHost: string;
+      backendPort?: string;
+      pathPrefix?: string;
+      token?: string;
+      backendToken?: string;
+      folder?: string;
+      extensionHostOnly?: boolean;
+      https: boolean;
+      tlsCert?: string;
+      tlsKey?: string;
+      launch?: boolean;
+    }>()
+  : ({} as {
+      config?: string;
+      port: string;
+      host: string;
+      backendType: string;
+      backendHost: string;
+      backendPort?: string;
+      pathPrefix?: string;
+      token?: string;
+      backendToken?: string;
+      folder?: string;
+      extensionHostOnly?: boolean;
+      https: boolean;
+      tlsCert?: string;
+      tlsKey?: string;
+      launch?: boolean;
+    });
 
 async function main(): Promise<void> {
   let config: TunnelConfig;
@@ -138,7 +171,21 @@ async function main(): Promise<void> {
     sessionMgr.register(backend);
   }
 
-  // --launch: automatically spawn each configured backend.
+  // ── Onboarding: ensure code-server is installed before launching ──────────
+  if (opts.launch) {
+    const sep = '─'.repeat(52);
+    console.log(sep);
+    const installed = installedCodeServerVersion();
+    if (installed) {
+      console.log(`code-server v${installed} ready.`);
+    } else {
+      console.log('code-server not found — installing from GitHub Releases…');
+      console.log(`Cache dir: ${CODE_SERVER_CACHE_DIR}`);
+      await ensureCodeServer((msg) => console.log(msg));
+      console.log(`code-server v${installedCodeServerVersion() ?? '?'} installed.`);
+    }
+    console.log(sep);
+  }
   if (opts.launch) {
     for (const session of sessionMgr.list()) {
       try {
@@ -198,7 +245,86 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: Error) => {
-  console.error('Fatal error:', err.message);
-  process.exit(1);
-});
+// ── install subcommand ────────────────────────────────────────────────────────
+/**
+ * Handles `lengcat-vst install [--version <v>] [--check]`.
+ *
+ * --check : query GitHub for the latest version and report whether an update
+ *           is available; does NOT install anything.
+ * --version: install a specific version instead of the latest.
+ *
+ * Offline / poor-network usage:
+ *   If the download fails, the tool prints the exact tarball URL and the path
+ *   where you should place it.  Download the file on another machine and copy
+ *   it into CODE_SERVER_CACHE_DIR; the tool will detect and extract it
+ *   automatically on the next run.
+ */
+async function runInstallCommand(): Promise<void> {
+  const checkOnly = process.argv.includes('--check');
+  const versionIdx = process.argv.indexOf('--version');
+  const requestedVersion = versionIdx >= 0 ? process.argv[versionIdx + 1] : undefined;
+
+  const installed = installedCodeServerVersion();
+  const sep = '─'.repeat(52);
+
+  console.log('code-server installation');
+  console.log(sep);
+  console.log(`  Cache dir : ${CODE_SERVER_CACHE_DIR}`);
+  console.log(`  Installed : ${installed ? `v${installed}` : '(none)'}`);
+
+  if (checkOnly) {
+    console.log('  Fetching latest version from GitHub…');
+    const latest = await fetchLatestCodeServerVersion();
+    console.log(`  Latest    : v${latest}`);
+    if (installed === latest) {
+      console.log('  ✓ Already up to date.');
+    } else if (installed) {
+      console.log(`  ↑ Update available: v${installed} → v${latest}`);
+      console.log('  Run `lengcat-vst install` to update.');
+    } else {
+      console.log(`  Run \`lengcat-vst install\` to install v${latest}.`);
+    }
+    console.log(sep);
+    return;
+  }
+
+  let version = requestedVersion;
+  if (!version) {
+    console.log('  Fetching latest version from GitHub…');
+    version = await fetchLatestCodeServerVersion();
+    console.log(`  Latest    : v${version}`);
+  }
+
+  if (installed === version) {
+    console.log(`  ✓ code-server v${version} is already installed.`);
+    console.log(sep);
+    return;
+  }
+
+  console.log(`  Installing v${version}…`);
+  console.log(`  Tip: if the download is slow or fails, place the tarball at:`);
+  console.log(`       ${localTarballPath(version)}`);
+  console.log(sep);
+
+  await installCodeServer(version, (msg) => console.log(msg));
+
+  console.log(sep);
+  console.log(`  ✓ code-server v${version} installed.`);
+  console.log(sep);
+}
+
+// ── entry-point dispatch ─────────────────────────────────────────────────────
+
+if (process.argv[2] === 'install') {
+  runInstallCommand()
+    .then(() => process.exit(0))
+    .catch((err: Error) => {
+      console.error(`Install failed: ${err.message}`);
+      process.exit(1);
+    });
+} else {
+  main().catch((err: Error) => {
+    console.error('Fatal error:', err.message);
+    process.exit(1);
+  });
+}
