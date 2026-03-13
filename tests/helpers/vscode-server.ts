@@ -74,10 +74,8 @@ export async function startVSCodeServer(
     '--user-data-dir', path.join(tmpDir, 'data'),
     '--extensions-dir', path.join(tmpDir, 'extensions'),
   ];
-
-  if (basePath) {
-    args.push('--base-path', basePath);
-  }
+  // Note: code-server has no --base-path / --server-base-path flag.
+  // Path prefix routing is handled by the lengcat-vst proxy (prefix stripping).
 
   const proc: ChildProcess = spawn(binPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],

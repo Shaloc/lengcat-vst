@@ -33,7 +33,7 @@ import * as http from 'http';
 import { execSync } from 'child_process';
 
 /** Fallback version used when the GitHub Releases API is unreachable. */
-export const CODE_SERVER_FALLBACK_VERSION = '4.23.0';
+export const CODE_SERVER_FALLBACK_VERSION = '4.96.4';
 
 /** Persistent directory where the code-server binary is cached. */
 export const CODE_SERVER_CACHE_DIR = path.join(
@@ -182,6 +182,50 @@ export function findLocalTarball():
 }
 
 /**
+ * Scans CODE_SERVER_CACHE_DIR for an already-extracted code-server binary
+ * (handles manual installations or runs where extraction succeeded but
+ * `.installed-version` was never written).
+ *
+ * @returns `{ binPath, version }` for the newest matching directory found,
+ *          or `undefined` if none exist.
+ */
+export function findExtractedBinary():
+  | { binPath: string; version: string }
+  | undefined {
+  try {
+    if (!fs.existsSync(CODE_SERVER_CACHE_DIR)) return undefined;
+    const platform = resolveReleasePlatform();
+    const arch = resolveReleaseArch();
+    const prefix = 'code-server-';
+    const suffix = `-${platform}-${arch}`;
+
+    const matches = fs
+      .readdirSync(CODE_SERVER_CACHE_DIR)
+      .filter((e) => {
+        if (!e.startsWith(prefix) || !e.endsWith(suffix) || e.endsWith('.tar.gz')) {
+          return false;
+        }
+        try {
+          return fs.statSync(path.join(CODE_SERVER_CACHE_DIR, e)).isDirectory();
+        } catch {
+          return false;
+        }
+      })
+      .sort()
+      .reverse(); // prefer lexicographically newer versions first
+
+    for (const dir of matches) {
+      const binPath = path.join(CODE_SERVER_CACHE_DIR, dir, 'bin', 'code-server');
+      if (fs.existsSync(binPath)) {
+        const version = dir.slice(prefix.length, dir.length - suffix.length);
+        if (version) return { binPath, version };
+      }
+    }
+  } catch { /* unreadable directory */ }
+  return undefined;
+}
+
+/**
  * Fetches the latest published code-server release version from the GitHub
  * API.  Returns `CODE_SERVER_FALLBACK_VERSION` if the API cannot be reached
  * within 8 seconds.
@@ -240,7 +284,7 @@ async function downloadFileWithRetry(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (attempt > 0) {
-      const delaySec = Math.pow(2, attempt); // 2, 4 seconds
+      const delaySec = Math.pow(2, attempt); // 2, 4, 8 seconds
       onProgress?.(
         `  Network error on attempt ${attempt}/${maxRetries - 1}: ${lastErr?.message ?? 'unknown'}. ` +
         `Retrying in ${delaySec}s…`
@@ -356,19 +400,36 @@ export async function installCodeServer(
   const url = codeServerTarballUrl(version);
 
   if (fs.existsSync(tarball)) {
-    onProgress?.(`  Found local tarball: ${tarball}`);
-  } else {
+    // Verify the tarball is non-empty before attempting extraction.
+    const size = fs.statSync(tarball).size;
+    if (size === 0) {
+      onProgress?.(`  Removing empty tarball at ${tarball}…`);
+      try { fs.unlinkSync(tarball); } catch { /* ignore */ }
+    } else {
+      onProgress?.(`  Found local tarball: ${tarball}`);
+    }
+  }
+  if (!fs.existsSync(tarball)) {
     onProgress?.(`  Downloading code-server v${version} from GitHub…`);
     onProgress?.(`  (Tip: to skip the download, place the tarball at:\n      ${tarball})`);
     await downloadFileWithRetry(url, tarball, onProgress);
   }
 
   onProgress?.('  Extracting…');
-  execSync(
-    `tar -xzf ${JSON.stringify(tarball)} -C ${JSON.stringify(CODE_SERVER_CACHE_DIR)}`
-  );
-  // Remove the tarball after successful extraction to save disk space.
-  try { fs.unlinkSync(tarball); } catch { /* ignore */ }
+  try {
+    execSync(
+      `tar -xzf ${JSON.stringify(tarball)} -C ${JSON.stringify(CODE_SERVER_CACHE_DIR)}`
+    );
+  } catch (extractErr) {
+    // Tarball is corrupt or incomplete — remove it so the next run can
+    // download a fresh copy.
+    try { fs.unlinkSync(tarball); } catch { /* ignore */ }
+    throw new Error(
+      `Failed to extract code-server tarball: ${(extractErr as Error).message}\n` +
+      `The corrupt file has been removed. Run the command again to re-download, or\n` +
+      `place a valid tarball at: ${tarball}`
+    );
+  }
 
   if (!fs.existsSync(binPath)) {
     throw new Error(
@@ -400,18 +461,29 @@ export async function installCodeServer(
 export async function ensureCodeServer(
   onProgress?: (msg: string) => void
 ): Promise<string> {
-  // Fast path: binary already installed.
+  // 1. Fast path: recorded installation.
   const existing = installedCodeServerBin();
   if (existing) return existing;
 
-  // Offline path: user pre-placed a tarball in the cache directory.
+  // 2. Recovery: an already-extracted binary directory exists but the version
+  //    file was never written (e.g. a previous install that crashed mid-way,
+  //    or a binary placed manually).
+  const extracted = findExtractedBinary();
+  if (extracted) {
+    onProgress?.(`  Found existing binary v${extracted.version} — recording installation.`);
+    fs.mkdirSync(CODE_SERVER_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(CODE_SERVER_VERSION_FILE, extracted.version, 'utf-8');
+    return extracted.binPath;
+  }
+
+  // 3. Offline path: user pre-placed a tarball in the cache directory.
   const local = findLocalTarball();
   if (local) {
     onProgress?.(`  Found local tarball for v${local.version} — extracting…`);
     return installCodeServer(local.version, onProgress);
   }
 
-  // Online path: fetch the latest release tag and download.
+  // 4. Online path: fetch the latest release tag and download.
   onProgress?.('  Fetching latest code-server version from GitHub…');
   const version = await fetchLatestCodeServerVersion();
   onProgress?.(`  Latest: v${version}`);

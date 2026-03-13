@@ -6,6 +6,8 @@
  * For `type === 'custom'` the caller-supplied executable is used.
  */
 
+import * as os from 'os';
+import * as path from 'path';
 import * as http from 'http';
 import { ChildProcess, spawn } from 'child_process';
 import { BackendConfig, BackendType } from './config';
@@ -84,13 +86,23 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
  */
 export function buildCodeServerArgs(config: BackendConfig): string[] {
   const host = config.host === 'localhost' ? '127.0.0.1' : config.host;
+  // Each session gets its own user-data and extensions directories so
+  // multiple sessions don't share VS Code state or conflict with each other.
+  const sessionDir = path.join(
+    os.homedir(),
+    '.lengcat-vst',
+    'sessions',
+    `${host}-${config.port}`
+  );
   const args: string[] = [
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
+    '--user-data-dir', path.join(sessionDir, 'data'),
+    '--extensions-dir', path.join(sessionDir, 'extensions'),
   ];
-  if (config.pathPrefix) {
-    args.push('--base-path', config.pathPrefix);
-  }
+  // Note: code-server does not support a --base-path / --server-base-path flag.
+  // Path prefix routing is handled by the lengcat-vst proxy, which strips the
+  // prefix before forwarding requests to code-server (see server.ts).
   return args;
 }
 

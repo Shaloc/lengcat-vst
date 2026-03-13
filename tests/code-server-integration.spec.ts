@@ -128,8 +128,8 @@ test.describe('code-server serves VS Code through proxy', () => {
   });
 
   test.afterAll(async () => {
-    await tunnel.close();
     vsInstance.stop();
+    await tunnel.close();
   });
 
   test('proxy returns a successful HTTP response', async ({ page }) => {
@@ -209,8 +209,8 @@ test.describe('session manager dashboard manages code-server', () => {
   });
 
   test.afterAll(async () => {
-    await tunnel.close();
     vsInstance.stop();
+    await tunnel.close();
   });
 
   test('dashboard loads and shows the running code-server session', async ({ page }) => {
@@ -278,6 +278,7 @@ test.describe('session manager launches code-server automatically', () => {
   let proxyPort: number;
   let sessionMgr: SessionManager;
   let launchedSessionId: string;
+  let launchedSessionPath: string;
 
   test.beforeAll(async () => {
     _resetCounter();
@@ -292,6 +293,7 @@ test.describe('session manager launches code-server automatically', () => {
     });
     const session = sessionMgr.register(cfg);
     launchedSessionId = session.id;
+    launchedSessionPath = session.pathPrefix ?? '';
 
     const config = mergeConfig({
       host: '127.0.0.1',
@@ -321,8 +323,8 @@ test.describe('session manager launches code-server automatically', () => {
     const launchRes = await request.post(
       `http://127.0.0.1:${proxyPort}/api/sessions/${launchedSessionId}/launch`
     );
-    // 200 or 204 are both acceptable success responses.
-    expect(launchRes.status()).toBeLessThan(300);
+    // /launch now responds 202 Accepted immediately and runs in the background.
+    expect(launchRes.status()).toBe(202);
 
     // Poll until the session is running (max 60 s).
     const deadline = Date.now() + 60_000;
@@ -339,15 +341,21 @@ test.describe('session manager launches code-server automatically', () => {
 
   test('VS Code is accessible through the proxy after launch', async ({ page }) => {
     test.setTimeout(90_000);
-    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'domcontentloaded' });
+    // Navigate to the session's path prefix, not the dashboard root.
+    // (With a SessionManager active, the root '/' serves the dashboard.)
+    const sessionPath = launchedSessionPath.replace(/\/$/, '');
+    const sessionUrl = `http://127.0.0.1:${proxyPort}${sessionPath}/`;
+    await page.goto(sessionUrl, { waitUntil: 'domcontentloaded' });
     await expect(
       page.locator('meta#vscode-workbench-web-configuration')
     ).toBeAttached({ timeout: 30_000 });
   });
 
   test('dashboard shows the launched session as running', async ({ page }) => {
+    // Navigate to dashboard root which polls for session status every 3 s.
     await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('.dot-running')).toBeVisible({ timeout: 5_000 });
+    // Allow up to 10 s for the first dashboard poll to render the running dot.
+    await expect(page.locator('.dot-running')).toBeVisible({ timeout: 10_000 });
     await page.screenshot({
       path: path.join(screenshotDir(), 'session-auto-launched.png'),
     });

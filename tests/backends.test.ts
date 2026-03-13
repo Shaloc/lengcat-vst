@@ -99,17 +99,29 @@ describe('buildCodeServerArgs', () => {
     expect(args).toContain('none');
   });
 
-  it('adds --base-path when pathPrefix is set', () => {
-    const config = buildBackendConfig({ type: 'vscode', port: 8080, pathPrefix: '/instance/1' });
-    const args = buildCodeServerArgs(config);
-    expect(args).toContain('--base-path');
-    expect(args).toContain('/instance/1');
-  });
-
-  it('omits --base-path when pathPrefix is not set', () => {
+  it('includes --user-data-dir and --extensions-dir for session isolation', () => {
     const config = buildBackendConfig({ type: 'vscode', port: 8080 });
     const args = buildCodeServerArgs(config);
+    expect(args).toContain('--user-data-dir');
+    expect(args).toContain('--extensions-dir');
+  });
+
+  it('does not include --base-path (code-server has no base-path flag; stripping is handled by the proxy)', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080, pathPrefix: '/instance/1' });
+    const args = buildCodeServerArgs(config);
     expect(args).not.toContain('--base-path');
+    expect(args).not.toContain('/instance/1');
+  });
+
+  it('args are the same regardless of pathPrefix (prefix stripping is proxy-side)', () => {
+    const withPrefix = buildBackendConfig({ type: 'vscode', port: 8080, pathPrefix: '/instance/1' });
+    const withoutPrefix = buildBackendConfig({ type: 'vscode', port: 8080 });
+    const argsWith = buildCodeServerArgs(withPrefix);
+    const argsWithout = buildCodeServerArgs(withoutPrefix);
+    // pathPrefix doesn't affect code-server args — only the proxy config differs
+    expect(argsWith.filter(a => !a.includes('lengcat-vst'))).toEqual(
+      argsWithout.filter(a => !a.includes('lengcat-vst'))
+    );
   });
 });
 

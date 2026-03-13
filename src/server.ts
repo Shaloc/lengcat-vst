@@ -263,16 +263,26 @@ async function handleUiRequest(
       res.end(JSON.stringify({ error: 'Invalid JSON body.' }));
       return;
     }
-    try {
-      await sessions.launch(id, folder);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(sessions.get(id)));
-    } catch (err) {
-      const msg = (err as Error).message;
-      const status = msg.includes('not found') ? 404 : 500;
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: msg }));
+
+    const sessionToLaunch = sessions.get(id);
+    if (!sessionToLaunch) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Session ${id} not found.` }));
+      return;
     }
+
+    // Launch asynchronously so the HTTP response is not blocked waiting for
+    // the backend process to start (which can take many seconds).
+    // The folder override is applied synchronously at the very start of
+    // sessions.launch() before any await, so it is immediately visible.
+    sessions.launch(id, folder).catch((err: Error) => {
+      process.stderr.write(
+        `[lengcat-vst] session ${id} launch failed: ${err.message}\n`
+      );
+    });
+
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(sessions.get(id)));
     return;
   }
 
@@ -381,6 +391,13 @@ export function createTunnelServer(
     const backend = selectBackend(url, backends);
     const proxy = getOrCreateProxy(backend, proxyCache);
 
+    // Strip the path prefix so code-server (which always serves at '/') sees
+    // paths from its own root.  This is standard reverse-proxy behaviour:
+    // the client accesses /prefix/path, the backend sees /path.
+    if (backend.pathPrefix && req.url?.startsWith(backend.pathPrefix)) {
+      req.url = req.url.slice(backend.pathPrefix.length) || '/';
+    }
+
     if (authMiddleware) {
       authMiddleware(req, res, (err) => {
         if (err) {
@@ -399,6 +416,21 @@ export function createTunnelServer(
   const server: http.Server | https.Server = tls
     ? https.createServer({ cert: tls.cert, key: tls.key }, requestHandler)
     : http.createServer(requestHandler);
+
+  // Track open TCP connections so close() can destroy them immediately.
+  // Without this, keep-alive connections held open by browsers prevent
+  // server.close() from resolving until the client releases them.
+  const openConnections = new Set<net.Socket>();
+  server.on('connection', (socket: net.Socket) => {
+    openConnections.add(socket);
+    socket.once('close', () => openConnections.delete(socket));
+  });
+  // HTTPS servers emit 'secureConnection' for TLS sockets in addition to
+  // 'connection' for the underlying TCP socket.  Track both to be safe.
+  server.on('secureConnection' as 'connection', (socket: net.Socket) => {
+    openConnections.add(socket);
+    socket.once('close', () => openConnections.delete(socket));
+  });
 
   // ── WebSocket / WSS upgrade handler ─────────────────────────────────────
   // Registered on the server so it handles both ws:// (HTTP server) and
@@ -422,6 +454,11 @@ export function createTunnelServer(
 
     const backend = selectBackend(url, backends);
     const proxy = getOrCreateProxy(backend, proxyCache);
+
+    // Strip path prefix for WebSocket upgrades, same as HTTP requests.
+    if (backend.pathPrefix && req.url?.startsWith(backend.pathPrefix)) {
+      req.url = req.url.slice(backend.pathPrefix.length) || '/';
+    }
 
     if (authMiddleware) {
       // Authenticate WS upgrades via the token query-string parameter.
@@ -457,6 +494,12 @@ export function createTunnelServer(
       return new Promise((resolve, reject) => {
         for (const proxy of proxyCache.values()) {
           proxy.close();
+        }
+        // Destroy all lingering keep-alive connections so server.close()
+        // resolves immediately instead of waiting for browsers to release
+        // their persistent HTTP connections.
+        for (const socket of openConnections) {
+          socket.destroy();
         }
         server.close((err) => {
           if (err) {
