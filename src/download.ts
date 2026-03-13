@@ -5,9 +5,24 @@
  *   https://github.com/coder/code-server/releases
  *
  * The binary is persisted to ~/.lengcat-vst/code-server/ so subsequent runs
- * do not need to download again.  Call `installCodeServer` to install a
- * specific version, or `ensureCodeServer` to install only when no
- * installation is present.
+ * do not need to download again.
+ *
+ * ── Offline / poor-network usage ────────────────────────────────────────────
+ * If you cannot download from GitHub, place the tarball you obtained through
+ * another means into CODE_SERVER_CACHE_DIR before running the tool:
+ *
+ *   Expected location:
+ *     ~/.lengcat-vst/code-server/code-server-<version>-<platform>-<arch>.tar.gz
+ *
+ *   Example (Linux x86-64, v4.23.0):
+ *     ~/.lengcat-vst/code-server/code-server-4.23.0-linux-amd64.tar.gz
+ *
+ *   Download from:
+ *     https://github.com/coder/code-server/releases
+ *
+ * The tool detects the tarball automatically on startup and extracts it
+ * without any network access.
+ * ────────────────────────────────────────────────────────────────────────────
  */
 
 import * as fs from 'fs';
@@ -78,6 +93,27 @@ export function codeServerBinPath(version: string): string {
 }
 
 /**
+ * Returns the filename of the tarball for the given version on the current
+ * platform/arch.  Users can download this file manually and place it inside
+ * CODE_SERVER_CACHE_DIR to skip the automatic network download.
+ *
+ * Example: "code-server-4.23.0-linux-amd64.tar.gz"
+ */
+export function localTarballName(version: string): string {
+  const platform = resolveReleasePlatform();
+  const arch = resolveReleaseArch();
+  return `code-server-${version}-${platform}-${arch}.tar.gz`;
+}
+
+/**
+ * Returns the full drop-in path where a user-supplied tarball for `version`
+ * should be placed so the tool finds it without downloading.
+ */
+export function localTarballPath(version: string): string {
+  return path.join(CODE_SERVER_CACHE_DIR, localTarballName(version));
+}
+
+/**
  * Returns the currently installed code-server version string, or `undefined`
  * if no valid installation exists in `CODE_SERVER_CACHE_DIR`.
  */
@@ -101,6 +137,48 @@ export function installedCodeServerVersion(): string | undefined {
 export function installedCodeServerBin(): string | undefined {
   const version = installedCodeServerVersion();
   return version !== undefined ? codeServerBinPath(version) : undefined;
+}
+
+/**
+ * Scans CODE_SERVER_CACHE_DIR for a user-placed code-server tarball that
+ * matches the current platform and architecture.
+ *
+ * This is the offline / poor-network path: the user downloads the tarball
+ * from https://github.com/coder/code-server/releases on a machine with
+ * internet access and copies it to CODE_SERVER_CACHE_DIR.
+ *
+ * Expected filename format:
+ *   code-server-<version>-<platform>-<arch>.tar.gz
+ *
+ * @returns `{ tarball, version }` for the newest matching file found, or
+ *          `undefined` if none exist.
+ */
+export function findLocalTarball():
+  | { tarball: string; version: string }
+  | undefined {
+  try {
+    if (!fs.existsSync(CODE_SERVER_CACHE_DIR)) return undefined;
+    const platform = resolveReleasePlatform();
+    const arch = resolveReleaseArch();
+    const suffix = `-${platform}-${arch}.tar.gz`;
+    const prefix = 'code-server-';
+
+    const matches = fs
+      .readdirSync(CODE_SERVER_CACHE_DIR)
+      .filter((f) => f.startsWith(prefix) && f.endsWith(suffix))
+      .sort()
+      .reverse(); // prefer lexicographically newer versions first
+
+    for (const filename of matches) {
+      const version = filename.slice(prefix.length, filename.length - suffix.length);
+      if (!version) continue;
+      const tarball = path.join(CODE_SERVER_CACHE_DIR, filename);
+      return { tarball, version };
+    }
+  } catch {
+    /* unreadable directory – fall through */
+  }
+  return undefined;
 }
 
 /**
@@ -140,8 +218,58 @@ export async function fetchLatestCodeServerVersion(): Promise<string> {
 }
 
 /**
- * Downloads `url` to the local file at `dest`, following up to 10 redirects.
- * Calls `onProgress` with a percentage string as data arrives.
+ * Downloads `url` to `dest`, following redirects.
+ *
+ * - Reports percentage progress via `onProgress`.
+ * - Applies a 30-second socket-inactivity timeout so stalled connections
+ *   do not hang indefinitely.
+ * - Retries up to `maxRetries` times with exponential back-off (2 s, 4 s, 8 s)
+ *   on connection errors or unexpected HTTP status codes.
+ * - Cleans up the partial file before each retry.
+ *
+ * If all retries are exhausted the error message includes the manual
+ * drop-in path so the user knows where to place a self-downloaded tarball.
+ */
+async function downloadFileWithRetry(
+  url: string,
+  dest: string,
+  onProgress?: (msg: string) => void,
+  maxRetries = 3
+): Promise<void> {
+  let lastErr: Error | undefined;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delaySec = Math.pow(2, attempt); // 2, 4 seconds
+      onProgress?.(
+        `  Network error on attempt ${attempt}/${maxRetries - 1}: ${lastErr?.message ?? 'unknown'}. ` +
+        `Retrying in ${delaySec}s…`
+      );
+      await new Promise<void>((r) => setTimeout(r, delaySec * 1_000));
+      // Remove any partial file before retrying.
+      try { if (fs.existsSync(dest)) fs.unlinkSync(dest); } catch { /* ignore */ }
+    }
+
+    try {
+      await downloadFile(url, dest, onProgress);
+      return; // success
+    } catch (err) {
+      lastErr = err as Error;
+    }
+  }
+
+  throw new Error(
+    `Failed to download code-server after ${maxRetries} attempt(s): ${lastErr?.message ?? 'unknown error'}\n` +
+    `\nPoor network?  Download the tarball manually and place it here:\n` +
+    `  URL:  ${url}\n` +
+    `  Save: ${dest}\n` +
+    `Then run the command again — the tool will detect the file automatically.`
+  );
+}
+
+/**
+ * Single-attempt HTTP/HTTPS download of `url` to `dest`.
+ * Follows up to 10 redirects.  Applies a 30-second socket-inactivity timeout.
  */
 function downloadFile(
   url: string,
@@ -153,7 +281,7 @@ function downloadFile(
 
     function attempt(u: string, redirectsLeft: number): void {
       const mod: typeof https | typeof http = u.startsWith('https') ? https : http;
-      mod.get(u, (res) => {
+      const req = mod.get(u, (res) => {
         if (
           res.statusCode !== undefined &&
           res.statusCode >= 300 &&
@@ -183,7 +311,13 @@ function downloadFile(
         res.pipe(file);
         file.on('finish', () => file.close(() => resolve()));
         file.on('error', (err) => { file.close(); reject(err); });
-      }).on('error', (err) => { file.close(); reject(err); });
+      });
+
+      // 30-second socket-inactivity timeout: kills stalled transfers.
+      req.setTimeout(30_000, () => {
+        req.destroy(new Error(`Socket timeout downloading ${u}`));
+      });
+      req.on('error', (err) => { file.close(); reject(err); });
     }
 
     attempt(url, 10);
@@ -193,12 +327,15 @@ function downloadFile(
 /**
  * Downloads, extracts, and records the code-server binary for `version`.
  *
- * Skips the download if the binary already exists on disk.
- * The downloaded tarball is removed after successful extraction.
+ * Resolution order:
+ *   1. Binary already extracted in CODE_SERVER_CACHE_DIR → return immediately.
+ *   2. Matching tarball already in CODE_SERVER_CACHE_DIR (user-supplied or a
+ *      previous partial install) → extract without downloading.
+ *   3. Download from GitHub Releases with retry/back-off.
  *
- * @param version    Semver version string, e.g. `'4.23.0'`.
- * @param onProgress Optional callback called with human-readable progress messages.
- * @returns          The absolute path to the installed `code-server` binary.
+ * @param version    Semver string, e.g. `'4.23.0'`.
+ * @param onProgress Optional callback for human-readable progress messages.
+ * @returns          Absolute path to the installed `code-server` binary.
  */
 export async function installCodeServer(
   version: string,
@@ -207,7 +344,7 @@ export async function installCodeServer(
   const binPath = codeServerBinPath(version);
 
   if (fs.existsSync(binPath)) {
-    // Already on disk — just refresh the version record and return.
+    // Binary already present — refresh the version record and return.
     fs.mkdirSync(CODE_SERVER_CACHE_DIR, { recursive: true });
     fs.writeFileSync(CODE_SERVER_VERSION_FILE, version, 'utf-8');
     return binPath;
@@ -215,21 +352,28 @@ export async function installCodeServer(
 
   fs.mkdirSync(CODE_SERVER_CACHE_DIR, { recursive: true });
 
+  const tarball = localTarballPath(version);
   const url = codeServerTarballUrl(version);
-  const tarball = path.join(CODE_SERVER_CACHE_DIR, `code-server-${version}.tar.gz`);
 
-  onProgress?.(`  Downloading code-server v${version} from GitHub…`);
-  await downloadFile(url, tarball, onProgress);
+  if (fs.existsSync(tarball)) {
+    onProgress?.(`  Found local tarball: ${tarball}`);
+  } else {
+    onProgress?.(`  Downloading code-server v${version} from GitHub…`);
+    onProgress?.(`  (Tip: to skip the download, place the tarball at:\n      ${tarball})`);
+    await downloadFileWithRetry(url, tarball, onProgress);
+  }
+
   onProgress?.('  Extracting…');
-
   execSync(
     `tar -xzf ${JSON.stringify(tarball)} -C ${JSON.stringify(CODE_SERVER_CACHE_DIR)}`
   );
+  // Remove the tarball after successful extraction to save disk space.
   try { fs.unlinkSync(tarball); } catch { /* ignore */ }
 
   if (!fs.existsSync(binPath)) {
     throw new Error(
-      `Extraction succeeded but binary not found at expected path: ${binPath}`
+      `Extraction succeeded but binary not found at expected path: ${binPath}\n` +
+      `This may indicate the tarball was for a different platform or arch.`
     );
   }
 
@@ -240,11 +384,15 @@ export async function installCodeServer(
 }
 
 /**
- * Ensures code-server is installed, downloading it if no installation exists.
+ * Ensures code-server is installed, downloading it only when no installation
+ * (and no local tarball) is found.
  *
- * When already installed the function returns immediately without any network
- * access.  On first run the latest release is fetched from GitHub (~50 MB)
- * and cached in `CODE_SERVER_CACHE_DIR` so all subsequent calls are instant.
+ * Resolution order:
+ *   1. Installed binary in CODE_SERVER_CACHE_DIR → return immediately.
+ *   2. User-placed tarball in CODE_SERVER_CACHE_DIR → extract, no download.
+ *   3. Fetch latest version from GitHub API → download and install.
+ *
+ * When already installed this function makes zero network calls.
  *
  * @param onProgress Optional callback for human-readable progress messages.
  * @returns          Absolute path to the `code-server` binary.
@@ -252,9 +400,18 @@ export async function installCodeServer(
 export async function ensureCodeServer(
   onProgress?: (msg: string) => void
 ): Promise<string> {
+  // Fast path: binary already installed.
   const existing = installedCodeServerBin();
   if (existing) return existing;
 
+  // Offline path: user pre-placed a tarball in the cache directory.
+  const local = findLocalTarball();
+  if (local) {
+    onProgress?.(`  Found local tarball for v${local.version} — extracting…`);
+    return installCodeServer(local.version, onProgress);
+  }
+
+  // Online path: fetch the latest release tag and download.
   onProgress?.('  Fetching latest code-server version from GitHub…');
   const version = await fetchLatestCodeServerVersion();
   onProgress?.(`  Latest: v${version}`);

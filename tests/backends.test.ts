@@ -1,4 +1,4 @@
-import { resolveExecutable, backendOrigin, findServerBinaryInHomeDir } from '../src/backends';
+import { resolveExecutable, backendOrigin, buildCodeServerArgs } from '../src/backends';
 import { buildBackendConfig } from '../src/config';
 
 describe('resolveExecutable', () => {
@@ -78,12 +78,38 @@ describe('resolveExecutable', () => {
   });
 });
 
-describe('findServerBinaryInHomeDir', () => {
-  it('returns undefined or a string (does not throw)', () => {
-    // On a machine without ~/.vscode-server the function should return
-    // undefined rather than throwing.
-    const result = findServerBinaryInHomeDir();
-    expect(typeof result === 'string' || result === undefined).toBe(true);
+describe('buildCodeServerArgs', () => {
+  it('uses --bind-addr with combined host:port', () => {
+    const config = buildBackendConfig({ type: 'vscode', host: '127.0.0.1', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).toContain('--bind-addr');
+    expect(args).toContain('127.0.0.1:8080');
+  });
+
+  it('normalises localhost to 127.0.0.1 in bind-addr', () => {
+    const config = buildBackendConfig({ type: 'vscode', host: 'localhost', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).toContain('127.0.0.1:8080');
+  });
+
+  it('uses --auth none', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).toContain('--auth');
+    expect(args).toContain('none');
+  });
+
+  it('adds --base-path when pathPrefix is set', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080, pathPrefix: '/instance/1' });
+    const args = buildCodeServerArgs(config);
+    expect(args).toContain('--base-path');
+    expect(args).toContain('/instance/1');
+  });
+
+  it('omits --base-path when pathPrefix is not set', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).not.toContain('--base-path');
   });
 });
 
