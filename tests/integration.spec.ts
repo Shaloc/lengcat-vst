@@ -570,11 +570,11 @@ test.describe('Session dashboard — HTTPS + IP — iframe shows VS Code', () =>
     // Click the session to select it.
     await page.locator('.session-item').first().click();
 
-    // The iframe must become visible.
-    await expect(page.locator('#session-frame')).toBeVisible({ timeout: 8_000 });
+    // Each running session gets an iframe with id="session-frame-{sessionId}".
+    await expect(page.locator('iframe[id^="session-frame-"]').first()).toBeVisible({ timeout: 8_000 });
 
     // VS Code must load inside the iframe.
-    const frameLocator = page.frameLocator('#session-frame');
+    const frameLocator = page.frameLocator('iframe[id^="session-frame-"]').first();
     await expect(
       frameLocator.locator('meta#vscode-workbench-web-configuration')
     ).toBeAttached({ timeout: 30_000 });

@@ -158,6 +158,51 @@ describe('SessionManager.toJSON', () => {
 
 // ── launch (error path only — no real process spawned) ───────────────────────
 
+describe('SessionManager.launch — port conflict', () => {
+  it('rejects with a clear error when another running session uses the same port', async () => {
+    const mgr = new SessionManager();
+    // s1 on port 8000, manually marked as running (simulates an active backend).
+    const s1 = mgr.register(makeConfig(8000));
+    s1.status = 'running';
+
+    // s2 on the same port — launch should be rejected immediately, before any
+    // real process is spawned.
+    const s2 = mgr.register(makeConfig(8000));
+
+    await expect(mgr.launch(s2.id)).rejects.toThrow(/port 8000.*already in use.*s1/i);
+    // The conflicting session must be marked as error so the UI can report it.
+    expect(mgr.get(s2.id)!.status).toBe('error');
+    expect(mgr.get(s2.id)!.errorMessage).toMatch(/port 8000/i);
+  });
+
+  it('does not reject when two sessions use different ports', async () => {
+    jest.resetModules();
+    jest.mock('../src/backends', () => ({
+      ...jest.requireActual('../src/backends'),
+      startBackend: (cfg: import('../src/config').BackendConfig) =>
+        Promise.resolve({
+          process: { pid: 9999, killed: false, on: () => ({}) } as never,
+          config: cfg,
+          waitForExit: () => new Promise(() => { /* never */ }),
+          stop: () => { /* noop */ },
+        }),
+    }));
+    const { SessionManager: SM, _resetCounter: rc } = await import('../src/session');
+    rc();
+    const mgr = new SM();
+    const s1 = mgr.register(makeConfig(8000));
+    s1.status = 'running';
+    const cfg2 = (await import('../src/config')).buildBackendConfig({ type: 'vscode', host: '127.0.0.1', port: 8001 });
+    const s2 = mgr.register(cfg2);
+
+    // Different port — should not throw a port-conflict error.
+    await expect(mgr.launch(s2.id)).resolves.toBeUndefined();
+
+    jest.resetModules();
+    jest.restoreAllMocks();
+  });
+});
+
 describe('SessionManager.launch (mocked spawn)', () => {
   it('throws when the session ID does not exist', async () => {
     const mgr = new SessionManager();

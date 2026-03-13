@@ -96,11 +96,32 @@ export class SessionManager extends EventEmitter {
    *               overrides the folder stored in the session config so that
    *               every launch can open a different directory without having
    *               to create a new session.
-   * @throws If the session is not found or if the backend process cannot be started.
+   * @throws If the session is not found, the port is already in use by another
+   *         running session, or if the backend process cannot be started.
    */
   async launch(id: string, folder?: string): Promise<void> {
     const session = this._sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found.`);
+
+    // Guard against port reuse: if another session is already running on the
+    // same host:port the new code-server would fail to bind with EADDRINUSE.
+    // Catch this early and surface a meaningful error instead of letting the
+    // backend process exit silently.
+    for (const other of this._sessions.values()) {
+      if (
+        other.id !== id &&
+        other.status === 'running' &&
+        other.host === session.host &&
+        other.port === session.port
+      ) {
+        const msg =
+          `Port ${session.port} is already in use by session ${other.id}. ` +
+          `Choose a different port or stop session ${other.id} first.`;
+        session.status = 'error';
+        session.errorMessage = msg;
+        throw new Error(msg);
+      }
+    }
 
     // Apply the folder override (or keep whatever was previously set).
     if (folder !== undefined) {
