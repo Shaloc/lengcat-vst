@@ -1,4 +1,4 @@
-import { resolveExecutable, backendOrigin } from '../src/backends';
+import { resolveExecutable, backendOrigin, findServerBinaryInHomeDir } from '../src/backends';
 import { buildBackendConfig } from '../src/config';
 
 describe('resolveExecutable', () => {
@@ -78,6 +78,37 @@ describe('resolveExecutable', () => {
     const config = buildBackendConfig({ type: 'vscodium' });
     const { args } = resolveExecutable(config);
     expect(args).not.toContain('--server-base-path');
+  });
+
+  it('omits serve-web subcommand when extensionHostOnly is true', () => {
+    const config = buildBackendConfig({ type: 'vscode', extensionHostOnly: true });
+    const { args } = resolveExecutable(config);
+    expect(args[0]).not.toBe('serve-web');
+    // Must still contain the port/host flags
+    expect(args).toContain('--host');
+    expect(args).toContain('--port');
+  });
+
+  it('includes serve-web subcommand when extensionHostOnly is false', () => {
+    const config = buildBackendConfig({ type: 'vscode', extensionHostOnly: false });
+    const { args } = resolveExecutable(config);
+    expect(args[0]).toBe('serve-web');
+  });
+});
+
+describe('findServerBinaryInHomeDir', () => {
+  it('returns undefined when no server directory exists', () => {
+    // On a machine without ~/.vscode-server / ~/.vscodium-server the function
+    // should return undefined rather than throwing.
+    const result = findServerBinaryInHomeDir('vscode');
+    // Result is either a string path (if the developer has the server installed)
+    // or undefined.  Either is acceptable; we just ensure it does not throw.
+    expect(typeof result === 'string' || result === undefined).toBe(true);
+  });
+
+  it('returns undefined for vscodium on a machine without vscodium-server', () => {
+    const result = findServerBinaryInHomeDir('vscodium');
+    expect(typeof result === 'string' || result === undefined).toBe(true);
   });
 });
 

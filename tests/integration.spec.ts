@@ -4,13 +4,18 @@
  * These tests download and run an actual VS Code web server (bundled inside
  * the code-server npm package) and verify that:
  *
- *  1. The proxy correctly forwards requests from the browser to VS Code.
+ *  1. The proxy (HTTP) correctly forwards requests from the browser to VS Code.
  *  2. VS Code's HTML shell, static assets, and WebSocket-based extension host
  *     all work end-to-end through the tunnel.
  *  3. Multi-instance routing sends two separate VS Code instances to the
  *     correct backends based on the URL path prefix.
  *  4. Both instances can be loaded simultaneously in the same browser page
  *     (i.e., in separate <iframe> elements).
+ *  5. HTTPS (TLS) proxy — the proxy is served over wss/https (self-signed cert)
+ *     so the browser grants a secure context; access is via IP (127.0.0.1),
+ *     not "localhost", simulating real-world IP-based access.
+ *  6. The VS Code workbench actually renders (`.monaco-workbench` element is
+ *     visible) confirming the full UI is up, not just the HTML shell.
  *
  * On first run the VS Code server is downloaded (~49 MB) and cached in
  * /tmp/lengcat-vst-vscode-server so subsequent runs are fast.
@@ -20,12 +25,23 @@
  * installation is required.
  */
 
+import * as path from 'path';
+import * as fs from 'fs';
 import { test, expect } from '@playwright/test';
 import { ensureVSCodeServer, startVSCodeServer } from './helpers/vscode-server';
 import { createTunnelServer } from '../src/server';
-import { mergeConfig } from '../src/config';
+import { mergeConfig, buildBackendConfig } from '../src/config';
+import { SessionManager, _resetCounter } from '../src/session';
+import { loadOrGenerateTls } from '../src/tls';
 import type { TunnelServer } from '../src/server';
 import type { VSCodeServerInstance } from './helpers/vscode-server';
+import type { TlsCredentials } from '../src/tls';
+
+// ---------------------------------------------------------------------------
+// Shared TLS credentials (generated once for the whole test run)
+// ---------------------------------------------------------------------------
+
+let sharedTls: TlsCredentials;
 
 // ---------------------------------------------------------------------------
 // Shared setup helpers
@@ -33,9 +49,11 @@ import type { VSCodeServerInstance } from './helpers/vscode-server';
 
 /** Starts the proxy on a random port and returns the tunnel + chosen port. */
 async function startProxy(
-  config: ReturnType<typeof mergeConfig>
+  config: ReturnType<typeof mergeConfig>,
+  tls?: TlsCredentials,
+  sessionMgr?: SessionManager
 ): Promise<{ tunnel: TunnelServer; port: number }> {
-  const tunnel = createTunnelServer(config);
+  const tunnel = createTunnelServer(config, sessionMgr, tls);
   await new Promise<void>((resolve, reject) => {
     tunnel.httpServer.once('error', reject);
     tunnel.httpServer.listen(0, '127.0.0.1', () => {
@@ -47,16 +65,22 @@ async function startProxy(
   return { tunnel, port };
 }
 
+/** Returns `http://` or `https://` based on whether TLS is active. */
+function origin(port: number, tls?: TlsCredentials): string {
+  return `${tls ? 'https' : 'http'}://127.0.0.1:${port}`;
+}
+
 // ---------------------------------------------------------------------------
-// Prepare the VS Code server binary once for all tests in this file.
+// Prepare the VS Code server binary + TLS cert once for all tests.
 // ---------------------------------------------------------------------------
 
 test.beforeAll(async () => {
   await ensureVSCodeServer();
+  sharedTls = await loadOrGenerateTls();   // auto-generates & caches
 });
 
 // ---------------------------------------------------------------------------
-// Test suite 1 — single VS Code instance behind the proxy
+// Test suite 1 — single VS Code instance behind the proxy (HTTP)
 // ---------------------------------------------------------------------------
 
 test.describe('Single VS Code instance', () => {
@@ -330,5 +354,239 @@ test.describe('Multi-instance path-prefix routing (real VS Code servers)', () =>
 
     // The two paths must differ so that VS Code assets don't collide.
     expect(settings1.serverBasePath).not.toBe(settings2.serverBasePath);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite 3 — HTTPS proxy + IP-based access + VS Code UI visible
+//
+// This suite is the primary proof that:
+//   • The proxy can serve over HTTPS (TLS-terminated, self-signed cert).
+//   • The browser reaches VS Code via 127.0.0.1 (IP, not "localhost").
+//   • The VS Code workbench actually renders — `.monaco-workbench` is
+//     present — confirming the full UI is up, not just the HTML shell.
+//   • Screenshots are captured so the result can be reviewed visually.
+// ---------------------------------------------------------------------------
+
+test.describe('HTTPS proxy — IP access — VS Code workbench visible', () => {
+  let vsInstance: VSCodeServerInstance;
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+
+  test.beforeAll(async () => {
+    vsInstance = await startVSCodeServer({ port: 18200 });
+
+    const config = mergeConfig({
+      host: '127.0.0.1',  // bind to IP address, not hostname
+      port: 0,
+      auth: false,
+      backends: [
+        {
+          type: 'vscode',
+          host: '127.0.0.1',
+          port: vsInstance.port,
+          tls: false,
+          tokenSource: 'none',
+        },
+      ],
+    });
+
+    // Use the shared TLS credentials so the proxy is HTTPS.
+    ({ tunnel, port: proxyPort } = await startProxy(config, sharedTls));
+  });
+
+  test.afterAll(async () => {
+    await tunnel.close();
+    vsInstance.stop();
+  });
+
+  test('proxy is serving HTTPS', () => {
+    expect(tunnel.isHttps).toBe(true);
+  });
+
+  test('HTTPS proxy returns VS Code HTML shell via IP address', async ({ page }) => {
+    // Access the proxy via the IP address (127.0.0.1), not "localhost".
+    const url = `https://127.0.0.1:${proxyPort}/`;
+    const res = await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+    expect(res?.status()).toBeLessThan(500);
+    await expect(
+      page.locator('meta#vscode-workbench-web-configuration')
+    ).toBeAttached({ timeout: 15_000 });
+  });
+
+  test('VS Code workbench renders in the browser (visual confirmation)', async ({ page }) => {
+    // Navigate to VS Code via HTTPS + IP and wait for the full workbench to
+    // initialise.  This is the definitive proof that VS Code is actually up
+    // and the browser has a working secure context.
+    await page.goto(`https://127.0.0.1:${proxyPort}/`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30_000,
+    });
+
+    // Configuration meta tag — present as soon as the HTML shell loads.
+    await expect(
+      page.locator('meta#vscode-workbench-web-configuration')
+    ).toBeAttached({ timeout: 15_000 });
+
+    // The Monaco workbench container is injected into the DOM only after the
+    // workbench JS has fully initialised — its presence confirms VS Code is
+    // running, not just that the HTML was served.
+    await expect(
+      page.locator('.monaco-workbench')
+    ).toBeAttached({ timeout: 45_000 });
+
+    // Capture a screenshot for human review.
+    const screenshotDir = path.join(__dirname, '..', 'test-results');
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshotDir, 'vscode-https-ip.png'),
+      fullPage: false,
+    });
+  });
+
+  test('no 502 errors when loading VS Code over HTTPS via IP', async ({ page }) => {
+    const proxyErrors: string[] = [];
+    page.on('response', (res) => {
+      if (res.status() === 502) proxyErrors.push(res.url());
+    });
+
+    await page.goto(`https://127.0.0.1:${proxyPort}/`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.waitForTimeout(1500);
+
+    expect(proxyErrors).toEqual([]);
+  });
+
+  test('WebSocket connection has no errors (wss:// over HTTPS proxy)', async ({ page }) => {
+    const wsErrors: string[] = [];
+    page.on('websocket', (ws) => {
+      ws.on('socketerror', (err) => wsErrors.push(String(err)));
+    });
+
+    await page.goto(`https://127.0.0.1:${proxyPort}/`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.waitForTimeout(3_000);
+
+    // No WebSocket-level transport errors from the proxy layer.
+    expect(wsErrors).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test suite 4 — Session dashboard (HTTPS + IP): session visible, iframe loads
+// ---------------------------------------------------------------------------
+
+test.describe('Session dashboard — HTTPS + IP — iframe shows VS Code', () => {
+  let vsInstance: VSCodeServerInstance;
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+  let sessionPathPrefix: string;
+
+  test.beforeAll(async () => {
+    _resetCounter();
+    // Start VS Code with a path prefix so it lives at /_session/s1/.
+    vsInstance = await startVSCodeServer({ port: 18201, basePath: '/_session/s1' });
+
+    const sessionMgr = new SessionManager();
+    const cfg = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: vsInstance.port,
+      tls: false,
+      tokenSource: 'none',
+      pathPrefix: '/_session/s1',
+    });
+    const session = sessionMgr.register(cfg);
+    // The VS Code server is already running — mark the session as running.
+    session.status = 'running';
+    sessionPathPrefix = session.pathPrefix;
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [],    // backends come from the session manager at runtime
+    });
+
+    ({ tunnel, port: proxyPort } = await startProxy(config, sharedTls, sessionMgr));
+  });
+
+  test.afterAll(async () => {
+    await tunnel.close();
+    vsInstance.stop();
+  });
+
+  test('dashboard is served over HTTPS at the root', async ({ page }) => {
+    const res = await page.goto(`https://127.0.0.1:${proxyPort}/`, {
+      waitUntil: 'domcontentloaded',
+    });
+    expect(res?.status()).toBe(200);
+    // The dashboard HTML must contain the session-list element.
+    await expect(page.locator('#session-list')).toBeAttached();
+  });
+
+  test('registered session appears in the sidebar', async ({ page }) => {
+    await page.goto(`https://127.0.0.1:${proxyPort}/`, {
+      waitUntil: 'domcontentloaded',
+    });
+    // At least one session item should be listed.
+    await expect(page.locator('.session-item')).toHaveCount(1);
+    // The status dot should be green (running).
+    await expect(page.locator('.dot-running')).toBeVisible();
+  });
+
+  test('VS Code loads directly at the session path via HTTPS + IP', async ({ page }) => {
+    // Access the session URL directly (not via the iframe) to confirm
+    // the proxy routes the prefixed path correctly over HTTPS.
+    const url = `https://127.0.0.1:${proxyPort}${sessionPathPrefix}/`;
+    const res = await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+    expect(res?.status()).toBeLessThan(500);
+
+    await expect(
+      page.locator('meta#vscode-workbench-web-configuration')
+    ).toBeAttached({ timeout: 15_000 });
+
+    // Full workbench must be rendered.
+    await expect(
+      page.locator('.monaco-workbench')
+    ).toBeAttached({ timeout: 45_000 });
+
+    // Screenshot for visual review.
+    const screenshotDir = path.join(__dirname, '..', 'test-results');
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshotDir, 'vscode-session-https-ip.png'),
+      fullPage: false,
+    });
+  });
+
+  test('clicking a running session loads VS Code in the dashboard iframe', async ({ page }) => {
+    await page.goto(`https://127.0.0.1:${proxyPort}/`, {
+      waitUntil: 'domcontentloaded',
+    });
+
+    // Click the session to select it.
+    await page.locator('.session-item').first().click();
+
+    // The iframe must become visible.
+    await expect(page.locator('#session-frame')).toBeVisible({ timeout: 8_000 });
+
+    // VS Code must load inside the iframe.
+    const frameLocator = page.frameLocator('#session-frame');
+    await expect(
+      frameLocator.locator('meta#vscode-workbench-web-configuration')
+    ).toBeAttached({ timeout: 30_000 });
+
+    // Screenshot: dashboard with VS Code inside the iframe.
+    const screenshotDir = path.join(__dirname, '..', 'test-results');
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    await page.screenshot({
+      path: path.join(screenshotDir, 'dashboard-iframe-vscode.png'),
+      fullPage: false,
+    });
   });
 });

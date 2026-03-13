@@ -90,6 +90,11 @@ export function findServerBinaryInHomeDir(
 /**
  * Resolves the executable and default CLI args needed to start a given
  * backend in serve-web mode.
+ *
+ * When `config.extensionHostOnly` is true the `serve-web` subcommand is
+ * omitted — the binary is already the VS Code server (e.g. a
+ * `~/.vscode-server` Remote-SSH installation) and does not accept that
+ * subcommand.
  */
 export function resolveExecutable(config: BackendConfig): BackendExecutable {
   let command: string;
@@ -104,11 +109,15 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     command = EXECUTABLES[config.type];
   }
 
-  const args = [
-    'serve-web',
+  // Extension-host-only servers (e.g. ~/.vscode-server binary installed by
+  // Remote SSH) are already the server; they do not accept a 'serve-web'
+  // subcommand.
+  const args: string[] = config.extensionHostOnly ? [] : ['serve-web'];
+
+  args.push(
     '--host', config.host === 'localhost' ? '127.0.0.1' : config.host,
     '--port', String(config.port),
-  ];
+  );
 
   if (config.pathPrefix) {
     args.push('--server-base-path', config.pathPrefix);
@@ -204,15 +213,17 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
     const errnoErr = primaryErr as NodeJS.ErrnoException;
 
     // On ENOENT for known types, try home-directory server binaries.
+    // These binaries don't use the 'serve-web' subcommand, so re-resolve
+    // with extensionHostOnly: true to get the right arg list.
     if (
       errnoErr.code === 'ENOENT' &&
       (config.type === 'vscode' || config.type === 'vscodium')
     ) {
       const fallbackBin = findServerBinaryInHomeDir(config.type);
       if (fallbackBin) {
-        // Server binaries are already the server; they don't take 'serve-web'.
-        const fallbackArgs = args.slice(1); // drop 'serve-web'
-        return trySpawn(fallbackBin, fallbackArgs, config);
+        const fallbackConfig: BackendConfig = { ...config, extensionHostOnly: true };
+        const { args: fallbackArgs } = resolveExecutable(fallbackConfig);
+        return trySpawn(fallbackBin, fallbackArgs, fallbackConfig);
       }
     }
 

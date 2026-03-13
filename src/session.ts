@@ -30,6 +30,11 @@ export interface SessionInfo {
   errorMessage?: string;
   /** Workspace / folder path to open in VS Code (shown as a query param in the iframe URL). */
   folder?: string;
+  /**
+   * True when the backend is an extension-host-only server (e.g. a Remote-SSH
+   * installation) that does not require the `serve-web` subcommand.
+   */
+  extensionHostOnly?: boolean;
 }
 
 /** Internal session record (includes the live process handle). */
@@ -76,6 +81,7 @@ export class SessionManager extends EventEmitter {
       pathPrefix,
       status: 'stopped',
       folder: resolvedConfig.folder,
+      extensionHostOnly: resolvedConfig.extensionHostOnly,
     };
     this._sessions.set(id, session);
     return session;
@@ -192,6 +198,7 @@ export class SessionManager extends EventEmitter {
     if (s.startedAt !== undefined) info.startedAt = s.startedAt;
     if (s.errorMessage !== undefined) info.errorMessage = s.errorMessage;
     if (s.folder !== undefined) info.folder = s.folder;
+    if (s.extensionHostOnly) info.extensionHostOnly = true;
     return info;
   }
 }

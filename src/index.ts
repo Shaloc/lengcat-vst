@@ -6,29 +6,35 @@
  *   lengcat-vst [options]
  *
  * Options:
- *   --config <path>       Path to JSON config file
- *   --port <port>         Local proxy port (default: 3000)
- *   --host <host>         Local proxy bind address (default: 127.0.0.1)
- *   --backend-type <t>    Backend type: vscode|vscodium|lingma|qoder|custom
- *   --backend-host <h>    Backend host (default: localhost)
- *   --backend-port <p>    Backend port
- *   --path-prefix <p>     Path prefix for the backend (enables multi-instance routing)
- *   --token <secret>      Enable proxy auth with this secret
- *   --backend-token <t>   Fixed connection token for the VS Code backend
- *   --launch              Auto-launch each configured backend before proxying
+ *   --config <path>         Path to JSON config file
+ *   --port <port>           Local proxy port (default: 3000)
+ *   --host <host>           Local proxy bind address (default: 127.0.0.1)
+ *   --backend-type <t>      Backend type: vscode|vscodium|lingma|qoder|custom
+ *   --backend-host <h>      Backend host (default: localhost)
+ *   --backend-port <p>      Backend port
+ *   --path-prefix <p>       Path prefix for the backend
+ *   --token <secret>        Enable proxy auth with this secret
+ *   --backend-token <t>     Fixed connection token for the VS Code backend
+ *   --folder <path>         Workspace/folder to open in VS Code
+ *   --extension-host-only   Skip the serve-web subcommand (Remote-SSH style server)
+ *   --https / --no-https    Serve over HTTPS (default: true)
+ *   --tls-cert <path>       Path to TLS certificate PEM file
+ *   --tls-key <path>        Path to TLS private-key PEM file
+ *   --launch                Auto-launch each configured backend before proxying
  */
 
 import { Command } from 'commander';
 import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfig } from './config';
 import { createTunnelServer } from './server';
 import { SessionManager } from './session';
+import { loadOrGenerateTls, tlsCertCachePath } from './tls';
 
 const program = new Command();
 
 program
   .name('lengcat-vst')
   .description(
-    'A private local HTTP tunnel for VS Code / VSCodium serve-web — no public cloud required.'
+    'A private local HTTPS tunnel for VS Code / VSCodium serve-web — no public cloud required.'
   )
   .version('1.0.0');
 
@@ -54,6 +60,21 @@ program
     'workspace/folder path to open in VS Code (forwarded as a URL query param)'
   )
   .option(
+    '--extension-host-only',
+    'backend is an extension-host-only server (e.g. ~/.vscode-server); skips serve-web subcommand'
+  )
+  .option(
+    '--https',
+    'serve the proxy over HTTPS/WSS so the browser grants a secure context (default: on)',
+    true   // default true
+  )
+  .option(
+    '--no-https',
+    'disable HTTPS and serve plain HTTP (not recommended; disables secure context)'
+  )
+  .option('--tls-cert <path>', 'path to TLS certificate PEM file (auto-generated if omitted)')
+  .option('--tls-key <path>',  'path to TLS private-key PEM file (auto-generated if omitted)')
+  .option(
     '--launch',
     'automatically start each configured backend VS Code/VSCodium server'
   );
@@ -70,6 +91,10 @@ const opts = program.opts<{
   token?: string;
   backendToken?: string;
   folder?: string;
+  extensionHostOnly?: boolean;
+  https: boolean;        // commander turns --no-https into https: false
+  tlsCert?: string;
+  tlsKey?: string;
   launch?: boolean;
 }>();
 
@@ -92,6 +117,7 @@ async function main(): Promise<void> {
       token: opts.backendToken,
       pathPrefix: opts.pathPrefix,
       folder: opts.folder,
+      extensionHostOnly: opts.extensionHostOnly,
     };
     if (backendPort !== undefined) {
       backendEntry.port = backendPort;
@@ -126,7 +152,17 @@ async function main(): Promise<void> {
     }
   }
 
-  const server = createTunnelServer(config, sessionMgr);
+  // ── TLS / HTTPS ──────────────────────────────────────────────────────────
+  const useHttps = opts.https !== false && (config.https !== false);
+  let tlsCreds: Awaited<ReturnType<typeof loadOrGenerateTls>> | undefined;
+  if (useHttps) {
+    tlsCreds = await loadOrGenerateTls(
+      opts.tlsCert ?? config.tlsCert,
+      opts.tlsKey  ?? config.tlsKey
+    );
+  }
+
+  const server = createTunnelServer(config, sessionMgr, tlsCreds);
 
   process.on('SIGINT', async () => {
     console.log('\nShutting down...');
@@ -143,10 +179,17 @@ async function main(): Promise<void> {
 
   await server.listen();
 
+  const scheme = useHttps ? 'https' : 'http';
   const backend = config.backends[0];
-  console.log(`lengcat-vst listening on http://${config.host}:${config.port}`);
-  console.log(`  Proxying to ${backend.type} at ${backend.host}:${backend.port}`);
-  console.log(`  Open http://${config.host}:${config.port}/ in your browser to manage sessions`);
+  console.log(`lengcat-vst listening on ${scheme}://${config.host}:${config.port}`);
+  if (backend) {
+    console.log(`  Proxying to ${backend.type} at ${backend.host}:${backend.port}`);
+  }
+  console.log(`  Open ${scheme}://${config.host}:${config.port}/ in your browser to manage sessions`);
+  if (useHttps && tlsCreds?.selfSigned) {
+    console.log(`  TLS: self-signed certificate (accept the browser warning once)`);
+    console.log(`  Cert cached at: ${tlsCertCachePath}`);
+  }
   if (config.auth) {
     console.log('  Proxy authentication: ENABLED');
   }
