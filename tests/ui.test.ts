@@ -76,4 +76,13 @@ describe('renderDashboard', () => {
   it('the launch folder input name is referenced in the script', () => {
     expect(html).toContain('launch-folder');
   });
+
+  it('contains the session-error-banner element for surfacing launch errors', () => {
+    expect(html).toContain('id="session-error-banner"');
+  });
+
+  it('dashboard script references sessionErrorBanner for error display', () => {
+    expect(html).toContain('sessionErrorBanner');
+    expect(html).toContain('Launch error:');
+  });
 });

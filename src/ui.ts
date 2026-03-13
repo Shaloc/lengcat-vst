@@ -91,6 +91,7 @@ export function renderDashboard(): string {
     }
     .session-item-meta { font-size: 11px; color: #6c7086; }
     .session-item-folder { font-size: 11px; color: #a6e3a1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-item-error { font-size: 11px; color: #f38ba8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Collapsed: only show the status dot, centred */
     #sidebar.collapsed .session-item {
@@ -142,8 +143,9 @@ export function renderDashboard(): string {
     #content-area { flex: 1; position: relative; overflow: hidden; }
 
     /* Each session gets its own iframe stacked in #content-area.
-       Only the active session's iframe has display:block; the rest are
-       hidden but NOT destroyed, so switching never triggers a reload. */
+       Inactive iframes use visibility:hidden (NOT display:none) so VS Code's
+       viewport remains non-zero — preventing the client from thinking it has
+       been hidden/minimised and triggering a remote disconnection. */
     #content-area iframe {
       position: absolute; inset: 0;
       width: 100%; height: 100%; border: none;
@@ -188,6 +190,21 @@ export function renderDashboard(): string {
       padding: 9px 14px; background: #f38ba8; color: #1e1e2e;
       font-size: 12px; font-weight: 500; display: none;
     }
+
+    /* Persistent session-level error shown below the toolbar when a session
+       has status=error.  Uses a distinct dark-red style to differentiate from
+       the transient error-banner above. */
+    #session-error-banner {
+      padding: 8px 14px;
+      background: #2d1b1b;
+      border-bottom: 1px solid #f38ba8;
+      color: #f38ba8;
+      font-size: 12px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -216,6 +233,7 @@ export function renderDashboard(): string {
     <button class="btn btn-secondary" id="btn-open-new-tab" style="display:none" title="Open in new tab">↗ New tab</button>
     <button class="btn btn-danger"   id="btn-remove" style="display:none">Remove</button>
   </div>
+  <div id="session-error-banner"></div>
   <div id="content-area">
     <div id="welcome">
       <h2>lengcat-vst</h2>
@@ -316,6 +334,7 @@ export function renderDashboard(): string {
   const btnRemove         = document.getElementById('btn-remove');
   const welcome           = document.getElementById('welcome');
   const errorBanner       = document.getElementById('error-banner');
+  const sessionErrorBanner = document.getElementById('session-error-banner');
 
   // Per-session iframe pool.  Each running session gets exactly one iframe
   // created on first view; subsequent switches only toggle display — no
@@ -389,6 +408,9 @@ export function renderDashboard(): string {
       const folderLine = s.folder
         ? '<div class="session-item-folder" title="' + escHtml(s.folder) + '">📁 ' + escHtml(s.folder) + '</div>'
         : '';
+      const errorLine = (s.status === 'error' && s.errorMessage)
+        ? '<div class="session-item-error" title="' + escHtml(s.errorMessage) + '">⚠ ' + escHtml(s.errorMessage.length > 55 ? s.errorMessage.slice(0, 55) + '…' : s.errorMessage) + '</div>'
+        : '';
 
       el.innerHTML =
         '<div class="session-item-name">' +
@@ -397,7 +419,8 @@ export function renderDashboard(): string {
           extBadge +
         '</div>' +
         '<div class="session-item-meta">' + escHtml(s.pathPrefix) + '</div>' +
-        folderLine;
+        folderLine +
+        errorLine;
       el.addEventListener('click', () => selectSession(s.id));
       sessionList.appendChild(el);
     });
@@ -411,6 +434,7 @@ export function renderDashboard(): string {
       btnStop.style.display = 'none';
       btnOpenNewTab.style.display = 'none';
       btnRemove.style.display = 'none';
+      sessionErrorBanner.style.display = 'none';
       return;
     }
     const extLabel = s.extensionHostOnly ? ' [ext-host]' : '';
@@ -419,6 +443,15 @@ export function renderDashboard(): string {
     btnStop.style.display       = s.status === 'running' || s.status === 'starting' ? 'inline-block' : 'none';
     btnOpenNewTab.style.display = s.status === 'running' ? 'inline-block' : 'none';
     btnRemove.style.display     = 'inline-block';
+
+    // Show a persistent error banner when a launch has failed so the user
+    // can see exactly why (e.g. "Port 8000 already in use by session s1").
+    if (s.status === 'error' && s.errorMessage) {
+      sessionErrorBanner.textContent = '⚠ Launch error: ' + s.errorMessage;
+      sessionErrorBanner.style.display = 'block';
+    } else {
+      sessionErrorBanner.style.display = 'none';
+    }
   }
 
   function selectSession(id) {
@@ -452,9 +485,15 @@ export function renderDashboard(): string {
     // Evict iframes whose backend has stopped (e.g. process crashed).
     evictStoppedIframes();
 
-    // Hide all live iframes; we'll unhide the active one below.
+    // Hide all live iframes using visibility:hidden (NOT display:none).
+    // display:none collapses the iframe viewport to 0×0 which causes VS Code's
+    // web client to think the window has been minimised/hidden and triggers its
+    // remote-disconnect lifecycle (join.disconnectRemote), closing the session.
+    // visibility:hidden keeps the rendered viewport dimensions intact so VS Code
+    // stays connected; pointer-events:none prevents accidental interaction.
     for (const iframe of iframePool.values()) {
-      iframe.style.display = 'none';
+      iframe.style.visibility = 'hidden';
+      iframe.style.pointerEvents = 'none';
     }
 
     const s = sessions.find(x => x.id === activeId);
@@ -477,7 +516,8 @@ export function renderDashboard(): string {
 
     // Show the active session's iframe.
     welcome.style.display = 'none';
-    iframePool.get(s.id).style.display = 'block';
+    iframePool.get(s.id).style.visibility = 'visible';
+    iframePool.get(s.id).style.pointerEvents = 'auto';
   }
 
   // ── API calls ────────────────────────────────────────────────

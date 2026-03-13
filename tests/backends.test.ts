@@ -1,3 +1,5 @@
+import * as os from 'os';
+import * as path from 'path';
 import { resolveExecutable, backendOrigin, buildCodeServerArgs } from '../src/backends';
 import { buildBackendConfig } from '../src/config';
 
@@ -99,11 +101,25 @@ describe('buildCodeServerArgs', () => {
     expect(args).toContain('none');
   });
 
-  it('includes --user-data-dir and --extensions-dir for session isolation', () => {
+  it('includes --user-data-dir ($HOME/.vscode-server/data) and does not pass --extensions-dir', () => {
     const config = buildBackendConfig({ type: 'vscode', port: 8080 });
     const args = buildCodeServerArgs(config);
     expect(args).toContain('--user-data-dir');
-    expect(args).toContain('--extensions-dir');
+    expect(args).not.toContain('--extensions-dir');
+  });
+
+  it('uses $HOME/.vscode-server/data as shared user-data-dir', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    const idx = args.indexOf('--user-data-dir');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe(path.join(os.homedir(), '.vscode-server', 'data'));
+  });
+
+  it('does not include --extensions-dir (all sessions share the default extensions dir)', () => {
+    const config = buildBackendConfig({ type: 'vscode', host: '127.0.0.1', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).not.toContain('--extensions-dir');
   });
 
   it('does not include --base-path (code-server has no base-path flag; stripping is handled by the proxy)', () => {
@@ -119,9 +135,7 @@ describe('buildCodeServerArgs', () => {
     const argsWith = buildCodeServerArgs(withPrefix);
     const argsWithout = buildCodeServerArgs(withoutPrefix);
     // pathPrefix doesn't affect code-server args — only the proxy config differs
-    expect(argsWith.filter(a => !a.includes('lengcat-vst'))).toEqual(
-      argsWithout.filter(a => !a.includes('lengcat-vst'))
-    );
+    expect(argsWith).toEqual(argsWithout);
   });
 });
 

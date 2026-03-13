@@ -258,6 +258,196 @@ test.describe('Multi-instance path-prefix routing', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests — session error display
+// ---------------------------------------------------------------------------
+
+test.describe('Session error display', () => {
+  let backend: MockBackend;
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+
+  test.beforeAll(async () => {
+    backend = await startMockBackend('Healthy backend');
+    const sessionMgr = new SessionManager();
+
+    // Register a session in 'error' state to verify the UI surfaces the error.
+    const cfg = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: backend.port,
+      tls: false,
+      tokenSource: 'none',
+    });
+    const s = sessionMgr.register(cfg);
+    s.status = 'error';
+    s.errorMessage = 'Port 8000 is already in use by session s1.';
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [],
+    });
+    const localTunnel = createTunnelServer(config, sessionMgr);
+    await new Promise<void>((resolve, reject) => {
+      localTunnel.httpServer.once('error', reject);
+      localTunnel.httpServer.listen(0, '127.0.0.1', () => {
+        localTunnel.httpServer.off('error', reject);
+        resolve();
+      });
+    });
+    const { port } = localTunnel.httpServer.address() as { port: number };
+    tunnel = localTunnel;
+    proxyPort = port;
+  });
+
+  test.afterAll(async () => {
+    await tunnel.close();
+    await backend.close();
+  });
+
+  test('session-error-banner is initially hidden', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    const banner = page.locator('#session-error-banner');
+    await expect(banner).toBeAttached();
+    // No session selected yet — banner should not be visible.
+    await expect(banner).toBeHidden();
+  });
+
+  test('clicking an errored session shows the error banner with message', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    // Click the errored session item.
+    await page.locator('.session-item').first().click();
+    // Banner should now be visible and contain the error message.
+    const banner = page.locator('#session-error-banner');
+    await expect(banner).toBeVisible({ timeout: 3_000 });
+    await expect(banner).toContainText('Port 8000 is already in use');
+  });
+
+  test('errored session item shows a truncated error line', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    // The session item should contain the ⚠ error line.
+    await expect(page.locator('.session-item-error').first()).toBeAttached();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — multi-session iframe switching (visibility:hidden, not display:none)
+// ---------------------------------------------------------------------------
+
+test.describe('Multi-session iframe switching', () => {
+  let backend1: MockBackend;
+  let backend2: MockBackend;
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+  let sessionMgr: SessionManager;
+
+  test.beforeAll(async () => {
+    backend1 = await startMockBackend('Session A Content');
+    backend2 = await startMockBackend('Session B Content');
+    sessionMgr = new SessionManager();
+
+    const cfgA = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: backend1.port,
+      tls: false,
+      tokenSource: 'none',
+    });
+    const cfgB = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: backend2.port,
+      tls: false,
+      tokenSource: 'none',
+    });
+    const sA = sessionMgr.register(cfgA);
+    sA.status = 'running';
+    const sB = sessionMgr.register(cfgB);
+    sB.status = 'running';
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [],
+    });
+    const localTunnel = createTunnelServer(config, sessionMgr);
+    await new Promise<void>((resolve, reject) => {
+      localTunnel.httpServer.once('error', reject);
+      localTunnel.httpServer.listen(0, '127.0.0.1', () => {
+        localTunnel.httpServer.off('error', reject);
+        resolve();
+      });
+    });
+    const { port } = localTunnel.httpServer.address() as { port: number };
+    tunnel = localTunnel;
+    proxyPort = port;
+  });
+
+  test.afterAll(async () => {
+    await tunnel.close();
+    await backend1.close();
+    await backend2.close();
+  });
+
+  test('clicking first session shows its iframe (visible)', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    await page.locator('.session-item').nth(0).click();
+    // iframe for session A must exist and be visible.
+    const iframe = page.locator('iframe[id^="session-frame-"]').first();
+    await expect(iframe).toBeAttached({ timeout: 5_000 });
+    await expect(iframe).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('switching to second session hides first iframe with visibility:hidden (not display:none)', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+
+    // Select session A to create its iframe.
+    await page.locator('.session-item').nth(0).click();
+    await page.locator('iframe[id^="session-frame-"]').first().waitFor({ state: 'attached', timeout: 5_000 });
+
+    // Switch to session B and wait until its iframe is also in the DOM.
+    await page.locator('.session-item').nth(1).click();
+    const iframes = page.locator('iframe[id^="session-frame-"]');
+    await expect(iframes).toHaveCount(2, { timeout: 5_000 });
+
+    // The first iframe (session A) must be hidden via visibility:hidden,
+    // NOT removed from the DOM (so VS Code stays connected).
+    const firstIframe = iframes.first();
+    await expect(firstIframe).toBeAttached();
+    // visibility:hidden means the element is in the DOM but not visible.
+    const isVisible = await firstIframe.isVisible();
+    expect(isVisible).toBe(false);
+
+    // Confirm the first iframe is NOT hidden with display:none
+    // (display:none would also make isVisible() false, but we verify the
+    // CSS property to ensure we're using the correct hiding mechanism).
+    const visibility = await firstIframe.evaluate(
+      (el) => window.getComputedStyle(el).visibility
+    );
+    expect(visibility).toBe('hidden');
+  });
+
+  test('switching back to first session restores its iframe (visible)', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+
+    // Select A to create its iframe, then switch to B (creates B's iframe).
+    await page.locator('.session-item').nth(0).click();
+    await page.locator('iframe[id^="session-frame-"]').first().waitFor({ state: 'attached', timeout: 5_000 });
+    await page.locator('.session-item').nth(1).click();
+    // Wait for B's iframe to exist before switching back.
+    await expect(page.locator('iframe[id^="session-frame-"]')).toHaveCount(2, { timeout: 5_000 });
+
+    // Switch back to A — its iframe should become visible again.
+    await page.locator('.session-item').nth(0).click();
+    // The first iframe should be visible again.
+    const firstIframe = page.locator('iframe[id^="session-frame-"]').first();
+    await expect(firstIframe).toBeVisible({ timeout: 3_000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests — dashboard screenshots
 // ---------------------------------------------------------------------------
 

@@ -1,0 +1,94 @@
+name: CI
+
+# Run the full test suite (lint + unit + Playwright integration) on every
+# push and pull-request targeting main.  Pull requests MUST pass all checks
+# before they can be merged.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── 1. Lint + unit tests (fast, no browser needed) ────────────────────────
+  unit:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests (Jest)
+        run: npm test
+
+  # ── 2. Playwright integration tests (requires real browser + code-server) ─
+  e2e:
+    name: Playwright Integration Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Only run on PRs and main-branch pushes (skip for trivial doc-only changes
+    # if you need faster feedback; remove the condition to always run).
+    needs: unit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (Chromium only)
+        run: npx playwright install --with-deps chromium
+
+      # Cache the code-server binary so repeated CI runs don't re-download ~50 MB.
+      - name: Cache code-server binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.lengcat-vst/code-server
+          key: code-server-${{ runner.os }}-${{ runner.arch }}-v1
+
+      - name: Playwright integration tests
+        run: npm run test:e2e
+        env:
+          # Disable GPU in headless CI to avoid rendering issues.
+          PLAYWRIGHT_CHROMIUM_SANDBOX: '0'
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-screenshots
+          path: test-results/
+          retention-days: 7

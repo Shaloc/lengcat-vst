@@ -97,6 +97,14 @@ function getOrCreateProxy(
           delete proxyRes.headers['content-security-policy'];
         }
       }
+
+      // Allow VS Code's service worker to claim scope '/' even when the iframe
+      // is loaded at a path prefix (e.g. /_session/s1/).  Without this header
+      // the browser throws a SecurityError because the service-worker script
+      // URL lives under the session prefix but the registration requests scope
+      // '/'.  The Service-Worker-Allowed response header explicitly grants the
+      // wider scope.
+      proxyRes.headers['service-worker-allowed'] = '/';
     });
 
     // ── WebSocket upgrade fixup ─────────────────────────────────────────────

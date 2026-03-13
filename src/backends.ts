@@ -86,19 +86,14 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
  */
 export function buildCodeServerArgs(config: BackendConfig): string[] {
   const host = config.host === 'localhost' ? '127.0.0.1' : config.host;
-  // Each session gets its own user-data and extensions directories so
-  // multiple sessions don't share VS Code state or conflict with each other.
-  const sessionDir = path.join(
-    os.homedir(),
-    '.lengcat-vst',
-    'sessions',
-    `${host}-${config.port}`
-  );
+  // Use the standard VS Code server user-data directory ($HOME/.vscode-server/data)
+  // so that settings, keybindings and cached state from existing VS Code Remote
+  // installations are immediately available to all sessions.
+  const userDataDir = path.join(os.homedir(), '.vscode-server', 'data');
   const args: string[] = [
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
-    '--user-data-dir', path.join(sessionDir, 'data'),
-    '--extensions-dir', path.join(sessionDir, 'extensions'),
+    '--user-data-dir', userDataDir,
   ];
   // Note: code-server does not support a --base-path / --server-base-path flag.
   // Path prefix routing is handled by the lengcat-vst proxy, which strips the

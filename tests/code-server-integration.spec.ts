@@ -243,9 +243,11 @@ test.describe('session manager dashboard manages code-server', () => {
     test.setTimeout(90_000);
     await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'domcontentloaded' });
     await page.locator('.session-item').first().click();
-    await expect(page.locator('#session-frame')).toBeVisible({ timeout: 8_000 });
+    // Each running session gets an iframe with id="session-frame-{sessionId}".
+    // Use a prefix selector so we don't depend on the exact counter value.
+    await expect(page.locator('iframe[id^="session-frame-"]').first()).toBeVisible({ timeout: 8_000 });
 
-    const frame = page.frameLocator('#session-frame');
+    const frame = page.frameLocator('iframe[id^="session-frame-"]').first();
     await expect(
       frame.locator('meta#vscode-workbench-web-configuration')
     ).toBeAttached({ timeout: 30_000 });
@@ -359,5 +361,97 @@ test.describe('session manager launches code-server automatically', () => {
     await page.screenshot({
       path: path.join(screenshotDir(), 'session-auto-launched.png'),
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 5 — port conflict: duplicate port is rejected with a clear error
+// ---------------------------------------------------------------------------
+
+test.describe('session manager port-conflict detection', () => {
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+  let sessionMgr: SessionManager;
+  let firstSessionId: string;
+
+  test.beforeAll(async () => {
+    _resetCounter();
+    sessionMgr = new SessionManager();
+
+    // Register and manually mark session 1 as running on port 18503.
+    const cfg1 = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: 18503,
+      tls: false,
+      tokenSource: 'none',
+    });
+    const s1 = sessionMgr.register(cfg1);
+    s1.status = 'running';
+    firstSessionId = s1.id;
+
+    // Register session 2 on the SAME port (should be rejected).
+    const cfg2 = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: 18503,
+      tls: false,
+      tokenSource: 'none',
+    });
+    sessionMgr.register(cfg2);
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [],
+    });
+    ({ tunnel, port: proxyPort } = await startProxy(config, sessionMgr));
+  });
+
+  test.afterAll(async () => {
+    sessionMgr.stopAll();
+    await tunnel.close();
+  });
+
+  test('launching a second session on the same port returns 202 but session becomes error', async ({ request, page }) => {
+    // The /launch endpoint is async: it responds 202 immediately and runs the
+    // launch in the background.  The port-conflict check is synchronous so the
+    // session should transition to 'error' almost immediately.
+    const sessions = await (await request.get(`http://127.0.0.1:${proxyPort}/api/sessions`)).json() as Array<{ id: string; status: string }>;
+    // Find the second session (not the one we manually set to running).
+    const s2 = sessions.find((s) => s.id !== firstSessionId);
+    expect(s2).toBeDefined();
+
+    const launchRes = await request.post(
+      `http://127.0.0.1:${proxyPort}/api/sessions/${s2!.id}/launch`
+    );
+    expect(launchRes.status()).toBe(202);
+
+    // Wait for the session status to leave 'stopped' using Playwright's waitFor.
+    // The port-conflict check is synchronous so this happens within one polling
+    // cycle; 10 s is a very generous upper bound.
+    await page.waitForFunction(
+      async ([proxyPortStr, s2Id]: [string, string]) => {
+        const res = await fetch(`http://127.0.0.1:${proxyPortStr}/api/sessions`);
+        const list = await res.json() as Array<{ id: string; status: string }>;
+        const s = list.find((x) => x.id === s2Id);
+        return s && s.status !== 'stopped';
+      },
+      [String(proxyPort), s2!.id],
+      { timeout: 10_000 }
+    );
+
+    // Verify the final status is 'error'.
+    const finalRes = await request.get(`http://127.0.0.1:${proxyPort}/api/sessions`);
+    const finalList = await finalRes.json() as Array<{ id: string; status: string }>;
+    const finalStatus = finalList.find((s) => s.id === s2!.id)?.status;
+    expect(finalStatus).toBe('error');
+  });
+
+  test('dashboard shows the error message for the conflicting session', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    // The errored session item should show the ⚠ error line.
+    await expect(page.locator('.session-item-error').first()).toBeAttached({ timeout: 5_000 });
   });
 });
