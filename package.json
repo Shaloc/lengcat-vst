@@ -1,0 +1,45 @@
+{
+  "name": "vscodium",
+  "version": "1.0.0",
+  "description": "A safe tunnel that helps you to connect to your own vscode/lingma/qoder server via tunnel, but do not export to public internet",
+  "main": "index.js",
+  "bin": {
+    "vscodium-tunnel": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "jest --config jest.config.js",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "start": "node dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shaloc/vscodium.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Shaloc/vscodium/issues"
+  },
+  "homepage": "https://github.com/Shaloc/vscodium#readme",
+  "devDependencies": {
+    "@types/commander": "^2.12.0",
+    "@types/express": "^5.0.6",
+    "@types/http-proxy": "^1.17.17",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.57.0",
+    "eslint": "^10.0.3",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "express": "^5.2.1",
+    "http-proxy": "^1.18.1"
+  }
+}
