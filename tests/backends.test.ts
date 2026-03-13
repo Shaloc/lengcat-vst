@@ -2,31 +2,13 @@ import { resolveExecutable, backendOrigin, findServerBinaryInHomeDir } from '../
 import { buildBackendConfig } from '../src/config';
 
 describe('resolveExecutable', () => {
-  it('resolves vscodium executable', () => {
-    const config = buildBackendConfig({ type: 'vscodium', port: 8000 });
+  it('resolves vscode executable', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8000 });
     const { command, args } = resolveExecutable(config);
-    expect(command).toBe('codium');
+    expect(command).toBe('code');
     expect(args).toContain('serve-web');
     expect(args).toContain('--port');
     expect(args).toContain('8000');
-  });
-
-  it('resolves vscode executable', () => {
-    const config = buildBackendConfig({ type: 'vscode', port: 8000 });
-    const { command } = resolveExecutable(config);
-    expect(command).toBe('code');
-  });
-
-  it('resolves lingma executable', () => {
-    const config = buildBackendConfig({ type: 'lingma', port: 8080 });
-    const { command } = resolveExecutable(config);
-    expect(command).toBe('lingma');
-  });
-
-  it('resolves qoder executable', () => {
-    const config = buildBackendConfig({ type: 'qoder', port: 8080 });
-    const { command } = resolveExecutable(config);
-    expect(command).toBe('qoder');
   });
 
   it('uses custom executable path', () => {
@@ -46,7 +28,7 @@ describe('resolveExecutable', () => {
   });
 
   it('includes --without-connection-token when tokenSource is none', () => {
-    const config = buildBackendConfig({ type: 'vscodium', tokenSource: 'none' });
+    const config = buildBackendConfig({ type: 'vscode', tokenSource: 'none' });
     const { args } = resolveExecutable(config);
     expect(args).toContain('--without-connection-token');
     expect(args).not.toContain('--connection-token');
@@ -54,7 +36,7 @@ describe('resolveExecutable', () => {
 
   it('uses --connection-token when tokenSource is fixed', () => {
     const config = buildBackendConfig({
-      type: 'vscodium',
+      type: 'vscode',
       tokenSource: 'fixed',
       token: 'mytoken',
     });
@@ -66,7 +48,7 @@ describe('resolveExecutable', () => {
 
   it('includes --server-base-path when pathPrefix is set', () => {
     const config = buildBackendConfig({
-      type: 'vscodium',
+      type: 'vscode',
       pathPrefix: '/instance/1',
     });
     const { args } = resolveExecutable(config);
@@ -75,7 +57,7 @@ describe('resolveExecutable', () => {
   });
 
   it('does not include --server-base-path when pathPrefix is not set', () => {
-    const config = buildBackendConfig({ type: 'vscodium' });
+    const config = buildBackendConfig({ type: 'vscode' });
     const { args } = resolveExecutable(config);
     expect(args).not.toContain('--server-base-path');
   });
@@ -97,24 +79,17 @@ describe('resolveExecutable', () => {
 });
 
 describe('findServerBinaryInHomeDir', () => {
-  it('returns undefined when no server directory exists', () => {
-    // On a machine without ~/.vscode-server / ~/.vscodium-server the function
-    // should return undefined rather than throwing.
-    const result = findServerBinaryInHomeDir('vscode');
-    // Result is either a string path (if the developer has the server installed)
-    // or undefined.  Either is acceptable; we just ensure it does not throw.
-    expect(typeof result === 'string' || result === undefined).toBe(true);
-  });
-
-  it('returns undefined for vscodium on a machine without vscodium-server', () => {
-    const result = findServerBinaryInHomeDir('vscodium');
+  it('returns undefined or a string (does not throw)', () => {
+    // On a machine without ~/.vscode-server the function should return
+    // undefined rather than throwing.
+    const result = findServerBinaryInHomeDir();
     expect(typeof result === 'string' || result === undefined).toBe(true);
   });
 });
 
 describe('backendOrigin', () => {
   it('returns http origin for non-tls backend', () => {
-    const config = buildBackendConfig({ type: 'vscodium', host: 'localhost', port: 8000, tls: false });
+    const config = buildBackendConfig({ type: 'vscode', host: 'localhost', port: 8000, tls: false });
     expect(backendOrigin(config)).toBe('http://localhost:8000');
   });
 

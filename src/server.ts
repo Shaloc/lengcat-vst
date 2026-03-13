@@ -208,7 +208,7 @@ async function handleUiRequest(
       return;
     }
 
-    const type = (body.type as BackendType | undefined) ?? 'vscodium';
+    const type = (body.type as BackendType | undefined) ?? 'vscode';
     const port = typeof body.port === 'number' ? body.port : parseInt(String(body.port ?? '8000'), 10);
     const host = typeof body.host === 'string' ? body.host : '127.0.0.1';
     const tokenSource = (body.tokenSource as string | undefined) ?? 'none';

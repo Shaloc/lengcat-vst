@@ -9,7 +9,7 @@
  *   --config <path>         Path to JSON config file
  *   --port <port>           Local proxy port (default: 3000)
  *   --host <host>           Local proxy bind address (default: 127.0.0.1)
- *   --backend-type <t>      Backend type: vscode|vscodium|lingma|qoder|custom
+ *   --backend-type <t>      Backend type: vscode|custom
  *   --backend-host <h>      Backend host (default: localhost)
  *   --backend-port <p>      Backend port
  *   --path-prefix <p>       Path prefix for the backend
@@ -44,8 +44,8 @@ program
   .option('--host <host>', 'local proxy bind address', '127.0.0.1')
   .option(
     '--backend-type <type>',
-    'backend type: vscode | vscodium | lingma | qoder | custom',
-    'vscodium'
+    'backend type: vscode | custom',
+    'vscode'
   )
   .option('--backend-host <host>', 'backend server host', 'localhost')
   .option('--backend-port <port>', 'backend server port')

@@ -16,9 +16,6 @@ import { ensureDownloadedServer } from './download';
 /** Executable names (on PATH) for each supported backend type. */
 const EXECUTABLES: Record<BackendType, string> = {
   vscode: 'code',
-  vscodium: 'codium',
-  lingma: 'lingma',
-  qoder: 'qoder',
   custom: '', // resolved from BackendConfig.executable
 };
 
@@ -31,8 +28,8 @@ export interface BackendExecutable {
 }
 
 /**
- * Searches for a VS Code-flavour server binary installed in the user's home
- * directory by the Remote-SSH extension (or a VSCodium equivalent).
+ * Searches for a VS Code server binary installed in the user's home
+ * directory by the Remote-SSH extension.
  *
  * Checked locations, newest-first:
  *  - ~/.vscode-server/cli/servers/Stable-<hash>/server/bin/code-server
@@ -40,13 +37,9 @@ export interface BackendExecutable {
  *
  * Returns `undefined` when nothing is found.
  */
-export function findServerBinaryInHomeDir(
-  type: 'vscode' | 'vscodium'
-): string | undefined {
-  const serverDirName =
-    type === 'vscode' ? '.vscode-server' : '.vscodium-server';
-  const serverRoot = path.join(os.homedir(), serverDirName);
-  const binName = type === 'vscode' ? 'code-server' : 'codium-server';
+export function findServerBinaryInHomeDir(): string | undefined {
+  const serverRoot = path.join(os.homedir(), '.vscode-server');
+  const binName = 'code-server';
 
   // CLI-style install (newer): Stable-<hash>/server/bin/<binName>
   const cliServersDir = path.join(serverRoot, 'cli', 'servers');
@@ -268,10 +261,9 @@ async function waitForBackendReady(
 /**
  * Spawns a backend VS Code serve-web process for the given configuration.
  *
- * Fallback chain (for vscode / vscodium types on ENOENT):
+ * Fallback chain (for vscode type on ENOENT):
  *   1. Primary executable on PATH (or BackendConfig.executable).
- *   2. Server binary installed by Remote-SSH in ~/.vscode-server /
- *      ~/.vscodium-server.
+ *   2. Server binary installed by Remote-SSH in ~/.vscode-server.
  *   3. Automatically downloads the VS Code server bundled in the code-server
  *      npm package (~49 MB, cached in $TMPDIR/lengcat-vst-vscode-server).
  *
@@ -297,9 +289,9 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
     // with extensionHostOnly: true to get the right arg list.
     if (
       errnoErr.code === 'ENOENT' &&
-      (config.type === 'vscode' || config.type === 'vscodium')
+      config.type === 'vscode'
     ) {
-      const fallbackBin = findServerBinaryInHomeDir(config.type);
+      const fallbackBin = findServerBinaryInHomeDir();
       if (fallbackBin) {
         const fallbackConfig: BackendConfig = { ...config, extensionHostOnly: true };
         const { args: fallbackArgs } = resolveExecutable(fallbackConfig);

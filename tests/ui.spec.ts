@@ -11,8 +11,11 @@
 
 import { test, expect } from '@playwright/test';
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import { createTunnelServer } from '../src/server';
-import { mergeConfig } from '../src/config';
+import { mergeConfig, buildBackendConfig } from '../src/config';
+import { SessionManager } from '../src/session';
 import type { TunnelServer } from '../src/server';
 
 // ---------------------------------------------------------------------------
@@ -251,5 +254,84 @@ test.describe('Multi-instance path-prefix routing', () => {
 
     const frame2 = page.frameLocator('#f2');
     await expect(frame2.locator('h1')).toContainText('Instance Two');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — dashboard screenshots
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard screenshots', () => {
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+
+  test.beforeAll(async () => {
+    const sessionMgr = new SessionManager();
+    // Register a session so the sidebar is populated.
+    sessionMgr.register(buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port: 8000,
+      tls: false,
+      tokenSource: 'none',
+    }));
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [],
+    });
+
+    const localTunnel = createTunnelServer(config, sessionMgr);
+    await new Promise<void>((resolve, reject) => {
+      localTunnel.httpServer.once('error', reject);
+      localTunnel.httpServer.listen(0, '127.0.0.1', () => {
+        localTunnel.httpServer.off('error', reject);
+        resolve();
+      });
+    });
+    const { port } = localTunnel.httpServer.address() as { port: number };
+    tunnel = localTunnel;
+    proxyPort = port;
+  });
+
+  test.afterAll(async () => {
+    await tunnel.close();
+  });
+
+  /** Shared helper: ensure the test-results dir exists and return its path. */
+  function screenshotDir(): string {
+    const dir = path.join(__dirname, '..', 'test-results');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  test('screenshot: session dashboard sidebar', async ({ page }) => {
+    await page.goto(`http://127.0.0.1:${proxyPort}/`);
+    await expect(page.locator('#session-list')).toBeAttached();
+    await page.screenshot({
+      path: path.join(screenshotDir(), 'dashboard-sidebar.png'),
+      fullPage: false,
+    });
+  });
+
+  test('screenshot: new session dialog', async ({ page }) => {
+    const jsErrors: string[] = [];
+    page.on('pageerror', (err) => jsErrors.push(err.message));
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    await expect(page.locator('#sidebar-header')).toBeVisible();
+    // Ensure JS errors haven't occurred before clicking.
+    expect(jsErrors).toEqual([]);
+    await page.locator('#btn-new-session').click();
+    // The modal backdrop removes the 'hidden' class when the button is clicked.
+    await page.waitForFunction(() => {
+      const el = document.getElementById('modal-backdrop');
+      return el && !el.classList.contains('hidden');
+    }, { timeout: 5000 });
+    await page.screenshot({
+      path: path.join(screenshotDir(), 'dashboard-new-session-dialog.png'),
+      fullPage: false,
+    });
   });
 });

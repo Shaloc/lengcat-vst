@@ -1,19 +1,19 @@
 /**
- * Configuration types and loading for vscodium local tunnel.
+ * Configuration types and loading for the VS Code local tunnel proxy.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** Known VS Code variant types. */
-export type BackendType = 'vscode' | 'vscodium' | 'lingma' | 'qoder' | 'custom';
+/** Supported backend types. */
+export type BackendType = 'vscode' | 'custom';
 
 /** Connection token source. */
 export type TokenSource = 'auto' | 'none' | 'fixed';
 
 /** Configuration for a single backend VS Code server. */
 export interface BackendConfig {
-  /** Variant of the VS Code server. Defaults to 'vscodium'. */
+  /** Backend type. Defaults to 'vscode'. */
   type: BackendType;
   /**
    * Host of the backend server.
@@ -111,9 +111,6 @@ export interface TunnelConfig {
 /** Default port per backend type. */
 const DEFAULT_PORTS: Record<BackendType, number> = {
   vscode: 8000,
-  vscodium: 8000,
-  lingma: 8080,
-  qoder: 8080,
   custom: 8000,
 };
 
@@ -137,7 +134,7 @@ export function defaultConfig(): TunnelConfig {
     host: '127.0.0.1',
     port: 3000,
     auth: false,
-    backends: [buildBackendConfig({ type: 'vscodium' })],
+    backends: [buildBackendConfig({ type: 'vscode' })],
   };
 }
 
@@ -184,7 +181,7 @@ export function mergeConfig(partial: PartialTunnelConfig): TunnelConfig {
 
   const rawBackends = partial.backends ?? defaults.backends;
   merged.backends = rawBackends.map((b) =>
-    buildBackendConfig({ ...b, type: b.type ?? 'vscodium' })
+    buildBackendConfig({ ...b, type: b.type ?? 'vscode' })
   );
 
   return merged;

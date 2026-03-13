@@ -66,7 +66,7 @@ describe('TunnelServer (HTTP proxying)', () => {
       host: '127.0.0.1',
       port: 0, // let OS pick a free port
       auth: false,
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
     });
 
     // Override listen to use a dynamic port
@@ -97,7 +97,7 @@ describe('TunnelServer (HTTP proxying)', () => {
       port: 0,
       auth: true,
       proxySecret: 'supersecret',
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
     });
 
     const tunnelServer = createTunnelServer(config);
@@ -135,7 +135,7 @@ describe('TunnelServer (HTTP proxying)', () => {
       port: 0,
       auth: false,
       // Use a port that (hopefully) nothing is listening on
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: 19999, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: 19999, tls: false, tokenSource: 'none' }],
     });
 
     const tunnelServer = createTunnelServer(config);
@@ -314,7 +314,7 @@ function httpRequest(
 /** Creates a TunnelServer backed by a SessionManager on a random port. */
 async function startUiServer(sessions?: SessionManager): Promise<{ tunnel: ReturnType<typeof createTunnelServer>; port: number; mgr: SessionManager }> {
   const mgr = sessions ?? new SessionManager();
-  const config = mergeConfig({ host: '127.0.0.1', port: 0, auth: false, backends: [{ type: 'vscodium' as const, port: 8000 }] });
+  const config = mergeConfig({ host: '127.0.0.1', port: 0, auth: false, backends: [{ type: 'vscode' as const, port: 8000 }] });
   const tunnel = createTunnelServer(config, mgr);
   await new Promise<void>((resolve, reject) => {
     tunnel.httpServer.once('error', reject);
@@ -354,12 +354,12 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
 
   it('GET /api/sessions returns pre-registered sessions', async () => {
     const mgr = new SessionManager();
-    mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
+    mgr.register(buildBackendConfig({ type: 'vscode', port: 8000 }));
     const { tunnel, port } = await startUiServer(mgr);
     const r = await httpGet(`http://127.0.0.1:${port}/api/sessions`);
     const sessions = JSON.parse(r.body) as { id: string; type: string; status: string }[];
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].type).toBe('vscodium');
+    expect(sessions[0].type).toBe('vscode');
     expect(sessions[0].status).toBe('stopped');
     await tunnel.close();
   });
@@ -385,7 +385,7 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
 
   it('DELETE /api/sessions/:id removes the session', async () => {
     const mgr = new SessionManager();
-    const s = mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
+    const s = mgr.register(buildBackendConfig({ type: 'vscode', port: 8000 }));
     const { tunnel, port } = await startUiServer(mgr);
     const r = await httpRequest('DELETE', `http://127.0.0.1:${port}/api/sessions/${s.id}`);
     expect(r.status).toBe(204);
@@ -417,7 +417,7 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
   it('returns 503 for session paths when no sessions are running', async () => {
     const mgr = new SessionManager();
     // Register a session but don't launch it → status stays 'stopped'
-    const s = mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
+    const s = mgr.register(buildBackendConfig({ type: 'vscode', port: 8000 }));
     const { tunnel, port } = await startUiServer(mgr);
     // The root '/' now serves the dashboard; a session-prefix path returns 503.
     const dashboardRes = await httpGet(`http://127.0.0.1:${port}/`);
@@ -450,7 +450,7 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
 
   it('POST /api/sessions/:id/launch with folder body overrides session folder', async () => {
     const mgr = new SessionManager();
-    mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
+    mgr.register(buildBackendConfig({ type: 'vscode', port: 8000 }));
     const s = mgr.list()[0];
     const { tunnel, port } = await startUiServer(mgr);
     // Launch should fail (no real process) but the folder should be recorded.
@@ -479,7 +479,7 @@ describe('TunnelServer (HTTPS)', () => {
       host: '127.0.0.1',
       port: 0,
       auth: false,
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
     });
 
     // Lazy-load the TLS generation only for this test (avoids slowing others).
@@ -521,7 +521,7 @@ describe('TunnelServer (HTTPS)', () => {
   it('createTunnelServer without TLS returns isHttps=false', () => {
     const config = mergeConfig({
       host: '127.0.0.1', port: 0, auth: false,
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: 8000, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: 8000, tls: false, tokenSource: 'none' }],
     });
     const tunnel = createTunnelServer(config);
     expect(tunnel.isHttps).toBe(false);
@@ -576,7 +576,7 @@ describe('TunnelServer (proxy header fixups)', () => {
 
     const config = mergeConfig({
       host: '127.0.0.1', port: 0, auth: false,
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
     });
 
     const tunnel = createTunnelServer(config);
@@ -600,7 +600,7 @@ describe('TunnelServer (proxy header fixups)', () => {
 
     const config = mergeConfig({
       host: '127.0.0.1', port: 0, auth: false,
-      backends: [{ type: 'vscodium', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
     });
 
     const tunnel = createTunnelServer(config);
