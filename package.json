@@ -1,14 +1,15 @@
 {
-  "name": "vscodium",
+  "name": "lengcat-vst",
   "version": "1.0.0",
   "description": "A safe tunnel that helps you to connect to your own vscode/lingma/qoder server via tunnel, but do not export to public internet",
   "main": "index.js",
   "bin": {
-    "vscodium-tunnel": "./dist/index.js"
+    "lengcat-vst": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "test": "jest --config jest.config.js",
+    "test:e2e": "playwright test",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "start": "node dist/index.js"
   },
@@ -25,6 +26,7 @@
   },
   "homepage": "https://github.com/Shaloc/vscodium#readme",
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/commander": "^2.12.0",
     "@types/express": "^5.0.6",
     "@types/http-proxy": "^1.17.17",

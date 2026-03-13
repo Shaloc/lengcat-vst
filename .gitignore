@@ -3,3 +3,5 @@ dist/
 dist-tests/
 *.js.map
 coverage/
+test-results/
+playwright-report/

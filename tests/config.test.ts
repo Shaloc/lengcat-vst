@@ -60,6 +60,19 @@ describe('buildBackendConfig', () => {
     expect(bc.token).toBe('secret');
     expect(bc.executable).toBe('/usr/local/bin/mycode');
   });
+
+  it('stores pathPrefix when provided', () => {
+    const bc = buildBackendConfig({
+      type: 'vscode',
+      pathPrefix: '/instance/1',
+    });
+    expect(bc.pathPrefix).toBe('/instance/1');
+  });
+
+  it('pathPrefix is undefined when not provided', () => {
+    const bc = buildBackendConfig({ type: 'vscode' });
+    expect(bc.pathPrefix).toBeUndefined();
+  });
 });
 
 describe('mergeConfig', () => {

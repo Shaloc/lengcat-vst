@@ -46,13 +46,16 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     'serve-web',
     '--host', config.host === 'localhost' ? '127.0.0.1' : config.host,
     '--port', String(config.port),
-    '--without-connection-token',
   ];
 
+  if (config.pathPrefix) {
+    args.push('--server-base-path', config.pathPrefix);
+  }
+
   if (config.tokenSource === 'fixed' && config.token) {
-    // Replace --without-connection-token with the actual token flag
-    args.pop();
     args.push('--connection-token', config.token);
+  } else {
+    args.push('--without-connection-token');
   }
 
   return { command, args };

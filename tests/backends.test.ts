@@ -63,6 +63,22 @@ describe('resolveExecutable', () => {
     expect(args).toContain('mytoken');
     expect(args).not.toContain('--without-connection-token');
   });
+
+  it('includes --server-base-path when pathPrefix is set', () => {
+    const config = buildBackendConfig({
+      type: 'vscodium',
+      pathPrefix: '/instance/1',
+    });
+    const { args } = resolveExecutable(config);
+    expect(args).toContain('--server-base-path');
+    expect(args).toContain('/instance/1');
+  });
+
+  it('does not include --server-base-path when pathPrefix is not set', () => {
+    const config = buildBackendConfig({ type: 'vscodium' });
+    const { args } = resolveExecutable(config);
+    expect(args).not.toContain('--server-base-path');
+  });
 });
 
 describe('backendOrigin', () => {

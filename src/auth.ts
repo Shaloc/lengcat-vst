@@ -61,7 +61,7 @@ export function createAuthMiddleware(secret: string): Middleware {
     if (provided !== secret) {
       res.writeHead(401, {
         'Content-Type': 'application/json',
-        'WWW-Authenticate': 'Bearer realm="vscodium-tunnel"',
+        'WWW-Authenticate': 'Bearer realm="lengcat-vst"',
       });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
