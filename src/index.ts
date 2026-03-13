@@ -87,6 +87,10 @@ program
   .option('--tls-cert <path>', 'path to TLS certificate PEM file (auto-generated if omitted)')
   .option('--tls-key <path>',  'path to TLS private-key PEM file (auto-generated if omitted)')
   .option(
+    '--tls-domains <domains>',
+    'comma-separated extra hostnames/IPs to include in the auto-generated TLS certificate SANs (e.g. mydev.local,10.0.1.5)'
+  )
+  .option(
     '--launch',
     'automatically start each configured backend VS Code/VSCodium server'
   );
@@ -111,6 +115,7 @@ const opts = process.argv[2] !== 'install'
       https: boolean;
       tlsCert?: string;
       tlsKey?: string;
+      tlsDomains?: string;
       launch?: boolean;
     }>()
   : ({} as {
@@ -128,6 +133,7 @@ const opts = process.argv[2] !== 'install'
       https: boolean;
       tlsCert?: string;
       tlsKey?: string;
+      tlsDomains?: string;
       launch?: boolean;
     });
 
@@ -203,9 +209,39 @@ async function main(): Promise<void> {
   const useHttps = opts.https !== false && (config.https !== false);
   let tlsCreds: Awaited<ReturnType<typeof loadOrGenerateTls>> | undefined;
   if (useHttps) {
+    // Collect extra domains for the auto-generated certificate.
+    // Priority: --tls-domains flag > config.tlsDomains.
+    // In addition, when the bind host is not a loopback address it is
+    // automatically included so that browsers visiting the proxy via that
+    // address can validate the certificate without a warning.
+    const extraDomains: string[] = [];
+
+    const cliDomains = opts.tlsDomains
+      ? opts.tlsDomains.split(',').map((d) => d.trim()).filter(Boolean)
+      : [];
+    const cfgDomains = config.tlsDomains ?? [];
+    const allExplicit = [...cliDomains, ...cfgDomains];
+
+    // Auto-include the bind host when it is not loopback.
+    const bindHost = config.host;
+    const isLoopback =
+      bindHost === '127.0.0.1' ||
+      bindHost === 'localhost' ||
+      // IPv6 loopback (full and compressed forms)
+      bindHost === '::1' ||
+      bindHost === '0:0:0:0:0:0:0:1' ||
+      // IPv4-mapped IPv6 loopback
+      bindHost === '::ffff:127.0.0.1';
+    if (!isLoopback && !allExplicit.includes(bindHost)) {
+      allExplicit.push(bindHost);
+    }
+
+    extraDomains.push(...allExplicit);
+
     tlsCreds = await loadOrGenerateTls(
       opts.tlsCert ?? config.tlsCert,
-      opts.tlsKey  ?? config.tlsKey
+      opts.tlsKey  ?? config.tlsKey,
+      extraDomains.length > 0 ? extraDomains : undefined
     );
   }
 
