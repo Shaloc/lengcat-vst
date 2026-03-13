@@ -90,20 +90,10 @@ export function buildCodeServerArgs(config: BackendConfig): string[] {
   // so that settings, keybindings and cached state from existing VS Code Remote
   // installations are immediately available to all sessions.
   const userDataDir = path.join(os.homedir(), '.vscode-server', 'data');
-  // Each session still gets its own extensions directory so that installing an
-  // extension in one session does not affect others.
-  const extensionsDir = path.join(
-    os.homedir(),
-    '.lengcat-vst',
-    'sessions',
-    `${host}-${config.port}`,
-    'extensions'
-  );
   const args: string[] = [
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
     '--user-data-dir', userDataDir,
-    '--extensions-dir', extensionsDir,
   ];
   // Note: code-server does not support a --base-path / --server-base-path flag.
   // Path prefix routing is handled by the lengcat-vst proxy, which strips the

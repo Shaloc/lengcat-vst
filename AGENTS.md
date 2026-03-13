@@ -101,12 +101,11 @@ same `host:port` before spawning.  If so, it immediately sets `session.status = 
 and throws a human-readable error.  This prevents silent EADDRINUSE failures where
 code-server would exit instantly and leave the session looking stuck.
 
-### 4. Shared `--user-data-dir`
+### 4. Shared `--user-data-dir` and shared extensions
 
-All code-server sessions use `$HOME/.vscode-server/data` as `--user-data-dir` so that
-existing VS Code Remote settings, keybindings, and extension state are immediately
-available.  Each session still gets its own per-session `--extensions-dir` under
-`~/.lengcat-vst/sessions/<host>-<port>/extensions` to avoid extension conflicts.
+All code-server sessions use `$HOME/.vscode-server/data` as `--user-data-dir` and
+rely on code-server's default extensions directory so that settings, keybindings,
+installed extensions, and extension state are shared across all sessions.
 
 ---
 
@@ -115,7 +114,7 @@ available.  Each session still gets its own per-session `--extensions-dir` under
 | Symptom | Root cause | Fix |
 |---|---|---|
 | Second session disconnects immediately | Iframe was hidden with `display:none` | Use `visibility:hidden` in `loadFrame()` |
-| Service-worker registration fails for session sN | code-server for sN failed to start (port reuse) | Check `session.errorMessage`; fix port conflict |
+| Service-worker SecurityError (even with one session) | VS Code's service-worker script is served through a path prefix (e.g. `/_session/s1/…`), but its registration requests scope `/`, which the browser denies | The proxy adds `Service-Worker-Allowed: /` to all proxied responses |
 | `#session-frame` selector in Playwright tests | Old single-iframe design; iframes now use `id="session-frame-{id}"` | Use `iframe[id^="session-frame-"]` |
 | code-server exits immediately on launch | Port already in use (`EADDRINUSE`) | `SessionManager.launch()` now catches this proactively |
 | Session shows status=error with no visible reason | `errorMessage` not shown in UI | The `#session-error-banner` and `.session-item-error` elements surface it |

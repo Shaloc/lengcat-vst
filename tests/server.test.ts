@@ -621,4 +621,26 @@ describe('TunnelServer (proxy header fixups)', () => {
     await tunnel.close();
     await new Promise<void>((resolve) => backend.close(() => resolve()));
   });
+
+  it('adds Service-Worker-Allowed: / to proxied responses', async () => {
+    const { server: backend, port: backendPort } = await startHeaderEchoServer({});
+
+    const config = mergeConfig({
+      host: '127.0.0.1', port: 0, auth: false,
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
+    });
+
+    const tunnel = createTunnelServer(config);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const { port } = tunnel.httpServer.address() as { port: number };
+
+    const { headers } = await httpGetHeaders(`http://127.0.0.1:${port}/`);
+    expect(headers['service-worker-allowed']).toBe('/');
+
+    await tunnel.close();
+    await new Promise<void>((resolve) => backend.close(() => resolve()));
+  });
 });
