@@ -7,7 +7,7 @@ A private local **HTTPS** reverse proxy that gives your browser a secure context
 - **HTTPS by default** — the proxy auto-generates a self-signed TLS certificate and serves over `https://` + `wss://` so the browser grants a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) (required by clipboard, camera, and many VS Code extensions). Disable with `--no-https` if needed.
 - **Built-in session dashboard** — opening `https://127.0.0.1:3000` shows a full session manager UI with a collapsible sidebar; no extra tool required.
 - **Launch with folder** — the *Launch* button opens a dialog where you can type the workspace folder to open in VS Code before the session starts.
-- **Auto-launch backends** — pass `--launch` and the proxy starts the VS Code / VSCodium server for you; if the binary isn't on `PATH`, it automatically falls back to the `~/.vscode-server` / `~/.vscodium-server` home-directory installation.
+- **Auto-launch backends** — pass `--launch` and the proxy starts the VS Code / VSCodium server for you; if the binary isn't on `PATH` it automatically falls back to the `~/.vscode-server` / `~/.vscodium-server` home-directory installation, and if that's not found either it **auto-downloads** the VS Code server (~49 MB, cached in `$TMPDIR/lengcat-vst-vscode-server`) so you never have to install it manually.
 - **Extension-host-only mode** — connect to a VS Code server that was started by Remote SSH (or any server that doesn't need the `serve-web` subcommand) by ticking the *Extension-host only* checkbox or passing `--extension-host-only`.
 - **Workspace folder** — specify a workspace path at session-create or launch time; the proxy appends it as a `?folder=` query parameter when loading VS Code in the iframe.
 - **Reverse HTTP + WebSocket proxy** — all traffic (including the extension-host WebSocket) is forwarded transparently; `X-Frame-Options` and restrictive CSP `frame-ancestors` headers are stripped so VS Code loads cleanly inside iframes.
@@ -118,6 +118,8 @@ If the primary binary (`code` / `codium`) is not found on `PATH`, the proxy auto
 |------|------------|
 | `vscode` | `~/.vscode-server/cli/servers/Stable-*/server/bin/code-server`, then `~/.vscode-server/bin/*/bin/code-server` |
 | `vscodium` | `~/.vscodium-server/cli/servers/Stable-*/server/bin/codium-server`, then `~/.vscodium-server/bin/*/bin/codium-server` |
+
+If neither the PATH binary nor a home-directory installation is found, the proxy **automatically downloads** the VS Code server bundled in the [code-server](https://github.com/coder/code-server) npm package (≈49 MB) and caches it in `$TMPDIR/lengcat-vst-vscode-server`.  The download runs only once; all subsequent starts use the cache.
 
 ---
 
@@ -242,10 +244,12 @@ These require a [secure context](https://developer.mozilla.org/en-US/docs/Web/Se
 
 ### `Error: spawn code ENOENT`
 
-The VS Code `code` binary is not on your `PATH`. Either:
-1. Add it to `PATH` (e.g. `export PATH="$PATH:/usr/share/code/bin"`), or
-2. Use `--extension-host-only` — the proxy will fall back to the `~/.vscode-server` installation automatically, or
-3. Use `--backend-type custom --backend-type /full/path/to/code`.
+The VS Code `code` binary is not on your `PATH`.  lengcat-vst will automatically try these fallbacks before giving up:
+
+1. `~/.vscode-server` / `~/.vscodium-server` home-directory installation (set by Remote-SSH), and
+2. **Auto-download**: the VS Code server is downloaded from the [code-server](https://github.com/coder/code-server) npm package (~49 MB) and cached in `$TMPDIR/lengcat-vst-vscode-server`.
+
+If you still want to use your own installation: add the binary to `PATH` (e.g. `export PATH="$PATH:/usr/share/code/bin"`) or use `--backend-type custom --backend-type /full/path/to/code`.
 
 ---
 
@@ -281,5 +285,5 @@ Integration test suites:
 | **HTTPS + IP access** | `https://127.0.0.1:PORT`, `isHttps=true`, `.monaco-workbench` rendered, WSS error-free, screenshots saved to `test-results/` |
 | **Session dashboard** | Dashboard lists sessions, iframe loads VS Code via path prefix, screenshots |
 
-The VS Code server used in integration tests comes from the [`code-server`](https://github.com/coder/code-server) npm package and is cached in `/tmp/lengcat-vst-vscode-server` after the first download.
+The VS Code server used in integration tests (and the auto-download fallback in production) comes from the [`code-server`](https://github.com/coder/code-server) npm package via `src/download.ts` and is cached in `$TMPDIR/lengcat-vst-vscode-server` after the first download.
 
