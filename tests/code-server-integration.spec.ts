@@ -414,7 +414,7 @@ test.describe('session manager port-conflict detection', () => {
     await tunnel.close();
   });
 
-  test('launching a second session on the same port returns 202 but session becomes error', async ({ request }) => {
+  test('launching a second session on the same port returns 202 but session becomes error', async ({ request, page }) => {
     // The /launch endpoint is async: it responds 202 immediately and runs the
     // launch in the background.  The port-conflict check is synchronous so the
     // session should transition to 'error' almost immediately.
@@ -428,17 +428,25 @@ test.describe('session manager port-conflict detection', () => {
     );
     expect(launchRes.status()).toBe(202);
 
-    // Poll until status settles (should become 'error' quickly).
-    const deadline = Date.now() + 10_000;
-    let status = 'stopped';
-    while (Date.now() < deadline) {
-      const listRes = await request.get(`http://127.0.0.1:${proxyPort}/api/sessions`);
-      const list = await listRes.json() as Array<{ id: string; status: string }>;
-      status = list.find((s) => s.id === s2!.id)?.status ?? 'stopped';
-      if (status !== 'stopped') break;
-      await new Promise<void>((r) => setTimeout(r, 200));
-    }
-    expect(status).toBe('error');
+    // Wait for the session status to leave 'stopped' using Playwright's waitFor.
+    // The port-conflict check is synchronous so this happens within one polling
+    // cycle; 10 s is a very generous upper bound.
+    await page.waitForFunction(
+      async ([proxyPortStr, s2Id]: [string, string]) => {
+        const res = await fetch(`http://127.0.0.1:${proxyPortStr}/api/sessions`);
+        const list = await res.json() as Array<{ id: string; status: string }>;
+        const s = list.find((x) => x.id === s2Id);
+        return s && s.status !== 'stopped';
+      },
+      [String(proxyPort), s2!.id],
+      { timeout: 10_000 }
+    );
+
+    // Verify the final status is 'error'.
+    const finalRes = await request.get(`http://127.0.0.1:${proxyPort}/api/sessions`);
+    const finalList = await finalRes.json() as Array<{ id: string; status: string }>;
+    const finalStatus = finalList.find((s) => s.id === s2!.id)?.status;
+    expect(finalStatus).toBe('error');
   });
 
   test('dashboard shows the error message for the conflicting session', async ({ page }) => {

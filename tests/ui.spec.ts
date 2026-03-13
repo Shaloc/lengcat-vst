@@ -407,11 +407,8 @@ test.describe('Multi-session iframe switching', () => {
     await page.locator('.session-item').nth(0).click();
     await page.locator('iframe[id^="session-frame-"]').first().waitFor({ state: 'attached', timeout: 5_000 });
 
-    // Switch to session B.
+    // Switch to session B and wait until its iframe is also in the DOM.
     await page.locator('.session-item').nth(1).click();
-    await page.waitForTimeout(500);
-
-    // There should now be two iframes in the pool.
     const iframes = page.locator('iframe[id^="session-frame-"]');
     await expect(iframes).toHaveCount(2, { timeout: 5_000 });
 
@@ -435,17 +432,17 @@ test.describe('Multi-session iframe switching', () => {
   test('switching back to first session restores its iframe (visible)', async ({ page }) => {
     await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
 
-    // Select A, then B, then A again.
+    // Select A to create its iframe, then switch to B (creates B's iframe).
     await page.locator('.session-item').nth(0).click();
     await page.locator('iframe[id^="session-frame-"]').first().waitFor({ state: 'attached', timeout: 5_000 });
     await page.locator('.session-item').nth(1).click();
-    await page.waitForTimeout(300);
-    await page.locator('.session-item').nth(0).click();
-    await page.waitForTimeout(300);
+    // Wait for B's iframe to exist before switching back.
+    await expect(page.locator('iframe[id^="session-frame-"]')).toHaveCount(2, { timeout: 5_000 });
 
+    // Switch back to A — its iframe should become visible again.
+    await page.locator('.session-item').nth(0).click();
     // The first iframe should be visible again.
-    const iframes = page.locator('iframe[id^="session-frame-"]');
-    const firstIframe = iframes.first();
+    const firstIframe = page.locator('iframe[id^="session-frame-"]').first();
     await expect(firstIframe).toBeVisible({ timeout: 3_000 });
   });
 });
