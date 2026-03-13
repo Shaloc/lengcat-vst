@@ -29,8 +29,11 @@ describe('renderDashboard', () => {
     expect(html).toContain('id="btn-new-session"');
   });
 
-  it('contains the session iframe', () => {
+  it('contains the session-frame sentinel element (iframes are created dynamically)', () => {
     expect(html).toContain('id="session-frame"');
+    // Actual iframes are created in JS with id="session-frame-{sessionId}"
+    expect(html).toContain('session-frame-');
+    expect(html).toContain('iframePool');
   });
 
   it('contains the new-session modal', () => {

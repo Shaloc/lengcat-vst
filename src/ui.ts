@@ -141,7 +141,10 @@ export function renderDashboard(): string {
 
     #content-area { flex: 1; position: relative; overflow: hidden; }
 
-    iframe {
+    /* Each session gets its own iframe stacked in #content-area.
+       Only the active session's iframe has display:block; the rest are
+       hidden but NOT destroyed, so switching never triggers a reload. */
+    #content-area iframe {
       position: absolute; inset: 0;
       width: 100%; height: 100%; border: none;
       background: #fff;
@@ -218,7 +221,10 @@ export function renderDashboard(): string {
       <h2>lengcat-vst</h2>
       <p>Select a session from the sidebar to view it here, or create a new one with the <strong>+</strong> button.</p>
     </div>
-    <iframe id="session-frame" style="display:none"></iframe>
+    <!-- Session iframes are created dynamically by JS (one per session id).
+         id="session-frame" is kept as a sentinel so tests and tooling can
+         locate this area; actual iframes have id="session-frame-{id}". -->
+    <span id="session-frame" style="display:none"></span>
   </div>
 </div>
 
@@ -300,6 +306,7 @@ export function renderDashboard(): string {
   let pollTimer = null;
 
   // ── DOM refs ─────────────────────────────────────────────────
+  const contentArea       = document.getElementById('content-area');
   const sessionList       = document.getElementById('session-list');
   const noSessions        = document.getElementById('no-sessions');
   const toolbarTitle      = document.getElementById('toolbar-title');
@@ -307,9 +314,13 @@ export function renderDashboard(): string {
   const btnStop           = document.getElementById('btn-stop');
   const btnOpenNewTab     = document.getElementById('btn-open-new-tab');
   const btnRemove         = document.getElementById('btn-remove');
-  const frame             = document.getElementById('session-frame');
   const welcome           = document.getElementById('welcome');
   const errorBanner       = document.getElementById('error-banner');
+
+  // Per-session iframe pool.  Each running session gets exactly one iframe
+  // created on first view; subsequent switches only toggle display — no
+  // src reassignment and therefore no reload.
+  const iframePool = new Map(); // Map<sessionId: string, HTMLIFrameElement>
 
   // New-session modal
   const modalBackdrop     = document.getElementById('modal-backdrop');
@@ -425,22 +436,48 @@ export function renderDashboard(): string {
     return url;
   }
 
+  // Removes iframes whose backend has stopped (crash or natural exit) so that
+  // a fresh load occurs the next time the session is relaunched.
+  function evictStoppedIframes() {
+    for (const [id, iframe] of iframePool) {
+      const session = sessions.find(x => x.id === id);
+      if (!session || session.status !== 'running') {
+        iframe.remove();
+        iframePool.delete(id);
+      }
+    }
+  }
+
   function loadFrame() {
+    // Evict iframes whose backend has stopped (e.g. process crashed).
+    evictStoppedIframes();
+
+    // Hide all live iframes; we'll unhide the active one below.
+    for (const iframe of iframePool.values()) {
+      iframe.style.display = 'none';
+    }
+
     const s = sessions.find(x => x.id === activeId);
     if (!s || s.status !== 'running') {
-      frame.style.display = 'none';
       welcome.style.display = 'flex';
       welcome.querySelector('p').textContent =
         s ? 'Session is ' + s.status + '. Use Launch to start it.' :
             'Select a session or create a new one.';
       return;
     }
-    welcome.style.display = 'none';
-    frame.style.display = 'block';
-    const url = sessionIframeUrl(s);
-    if (frame.src !== location.origin + url) {
-      frame.src = url;
+
+    // Create the iframe for this session on first view.
+    if (!iframePool.has(s.id)) {
+      const iframe = document.createElement('iframe');
+      iframe.id = 'session-frame-' + s.id;
+      iframe.src = sessionIframeUrl(s);
+      contentArea.appendChild(iframe);
+      iframePool.set(s.id, iframe);
     }
+
+    // Show the active session's iframe.
+    welcome.style.display = 'none';
+    iframePool.get(s.id).style.display = 'block';
   }
 
   // ── API calls ────────────────────────────────────────────────
@@ -467,7 +504,11 @@ export function renderDashboard(): string {
 
   async function stopSession(id) {
     await apiFetch('/api/sessions/' + id + '/stop', { method: 'POST' });
-    frame.style.display = 'none';
+    // Evict the cached iframe so relaunch loads a clean instance.
+    if (iframePool.has(id)) {
+      iframePool.get(id).remove();
+      iframePool.delete(id);
+    }
     welcome.style.display = 'flex';
     await fetchSessions();
   }
@@ -475,9 +516,12 @@ export function renderDashboard(): string {
   async function removeSession(id) {
     if (!confirm('Remove this session?')) return;
     await apiFetch('/api/sessions/' + id, { method: 'DELETE' });
+    if (iframePool.has(id)) {
+      iframePool.get(id).remove();
+      iframePool.delete(id);
+    }
     if (activeId === id) {
       activeId = null;
-      frame.style.display = 'none';
       welcome.style.display = 'flex';
     }
     await fetchSessions();
