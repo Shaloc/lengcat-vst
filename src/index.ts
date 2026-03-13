@@ -50,6 +50,10 @@ program
     'fixed connection token for the backend VS Code server'
   )
   .option(
+    '--folder <path>',
+    'workspace/folder path to open in VS Code (forwarded as a URL query param)'
+  )
+  .option(
     '--launch',
     'automatically start each configured backend VS Code/VSCodium server'
   );
@@ -65,6 +69,7 @@ const opts = program.opts<{
   pathPrefix?: string;
   token?: string;
   backendToken?: string;
+  folder?: string;
   launch?: boolean;
 }>();
 
@@ -86,6 +91,7 @@ async function main(): Promise<void> {
       tokenSource: opts.backendToken ? 'fixed' : 'none',
       token: opts.backendToken,
       pathPrefix: opts.pathPrefix,
+      folder: opts.folder,
     };
     if (backendPort !== undefined) {
       backendEntry.port = backendPort;

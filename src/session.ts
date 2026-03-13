@@ -28,6 +28,8 @@ export interface SessionInfo {
   pid?: number;
   startedAt?: string;
   errorMessage?: string;
+  /** Workspace / folder path to open in VS Code (shown as a query param in the iframe URL). */
+  folder?: string;
 }
 
 /** Internal session record (includes the live process handle). */
@@ -73,6 +75,7 @@ export class SessionManager extends EventEmitter {
       port: resolvedConfig.port,
       pathPrefix,
       status: 'stopped',
+      folder: resolvedConfig.folder,
     };
     this._sessions.set(id, session);
     return session;
@@ -82,17 +85,28 @@ export class SessionManager extends EventEmitter {
    * Launches (spawns) the backend process for the given session ID.
    * The session transitions: stopped → starting → running.
    *
-   * @throws If the session is not found.
+   * @param id     Session ID to launch.
+   * @param folder Optional workspace/folder path to open.  When supplied it
+   *               overrides the folder stored in the session config so that
+   *               every launch can open a different directory without having
+   *               to create a new session.
+   * @throws If the session is not found or if the backend process cannot be started.
    */
-  async launch(id: string): Promise<void> {
+  async launch(id: string, folder?: string): Promise<void> {
     const session = this._sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found.`);
+
+    // Apply the folder override (or keep whatever was previously set).
+    if (folder !== undefined) {
+      session.folder = folder || undefined;
+      session.config = { ...session.config, folder: folder || undefined };
+    }
 
     session.status = 'starting';
     session.errorMessage = undefined;
 
     try {
-      const managed = startBackend(session.config);
+      const managed = await startBackend(session.config);
       session.managed = managed;
       session.pid = managed.process.pid;
       session.startedAt = new Date().toISOString();
@@ -177,6 +191,7 @@ export class SessionManager extends EventEmitter {
     if (s.pid !== undefined) info.pid = s.pid;
     if (s.startedAt !== undefined) info.startedAt = s.startedAt;
     if (s.errorMessage !== undefined) info.errorMessage = s.errorMessage;
+    if (s.folder !== undefined) info.folder = s.folder;
     return info;
   }
 }

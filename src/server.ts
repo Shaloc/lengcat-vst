@@ -157,6 +157,7 @@ async function handleUiRequest(
     const tokenSource = (body.tokenSource as string | undefined) ?? 'none';
     const token = typeof body.token === 'string' ? body.token : undefined;
     const executable = typeof body.executable === 'string' ? body.executable : undefined;
+    const folder = typeof body.folder === 'string' && body.folder ? body.folder : undefined;
     const shouldLaunch = body.launch !== false;
 
     const config = buildBackendConfig({
@@ -167,6 +168,7 @@ async function handleUiRequest(
       tokenSource: tokenSource as 'none' | 'fixed' | 'auto',
       token,
       executable,
+      folder,
     });
 
     const session = sessions.register(config);
@@ -186,11 +188,24 @@ async function handleUiRequest(
   }
 
   // Launch session
+  // Accepts an optional JSON body: { folder?: string }
   const launchMatch = /^\/api\/sessions\/([^/]+)\/launch$/.exec(path);
   if (method === 'POST' && launchMatch) {
     const id = launchMatch[1];
+    let folder: string | undefined;
     try {
-      await sessions.launch(id);
+      const raw = await readBody(req);
+      if (raw.trim()) {
+        const body = JSON.parse(raw) as Record<string, unknown>;
+        folder = typeof body.folder === 'string' && body.folder ? body.folder : undefined;
+      }
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body.' }));
+      return;
+    }
+    try {
+      await sessions.launch(id, folder);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessions.get(id)));
     } catch (err) {

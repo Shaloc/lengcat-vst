@@ -48,6 +48,13 @@ export interface BackendConfig {
    * Example: '/instance/1'
    */
   pathPrefix?: string;
+  /**
+   * Local filesystem path to open as the default workspace / folder.
+   * When set, the folder is appended as a `?folder=<path>` query parameter in
+   * the iframe URL shown by the dashboard.
+   * Example: '/home/user/my-project'
+   */
+  folder?: string;
 }
 
 /** Top-level configuration for the local tunnel proxy. */
