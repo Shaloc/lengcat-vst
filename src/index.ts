@@ -14,12 +14,14 @@
  *   --backend-port <p>    Backend port
  *   --path-prefix <p>     Path prefix for the backend (enables multi-instance routing)
  *   --token <secret>      Enable proxy auth with this secret
- *   --no-auth             Disable proxy authentication (default when no token given)
+ *   --backend-token <t>   Fixed connection token for the VS Code backend
+ *   --launch              Auto-launch each configured backend before proxying
  */
 
 import { Command } from 'commander';
 import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfig } from './config';
 import { createTunnelServer } from './server';
+import { SessionManager } from './session';
 
 const program = new Command();
 
@@ -46,6 +48,10 @@ program
   .option(
     '--backend-token <token>',
     'fixed connection token for the backend VS Code server'
+  )
+  .option(
+    '--launch',
+    'automatically start each configured backend VS Code/VSCodium server'
   );
 
 program.parse(process.argv);
@@ -59,6 +65,7 @@ const opts = program.opts<{
   pathPrefix?: string;
   token?: string;
   backendToken?: string;
+  launch?: boolean;
 }>();
 
 async function main(): Promise<void> {
@@ -93,15 +100,37 @@ async function main(): Promise<void> {
     });
   }
 
-  const server = createTunnelServer(config);
+  // Build a session manager so the dashboard (/_ui) is always available.
+  const sessionMgr = new SessionManager();
+  for (const backend of config.backends) {
+    sessionMgr.register(backend);
+  }
+
+  // --launch: automatically spawn each configured backend.
+  if (opts.launch) {
+    for (const session of sessionMgr.list()) {
+      try {
+        await sessionMgr.launch(session.id);
+        console.log(
+          `  Launched ${session.type} (port ${session.port}, pid ${session.pid ?? '?'})`
+        );
+      } catch (err) {
+        console.error(`  Failed to launch ${session.type}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  const server = createTunnelServer(config, sessionMgr);
 
   process.on('SIGINT', async () => {
     console.log('\nShutting down...');
+    sessionMgr.stopAll();
     await server.close();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
+    sessionMgr.stopAll();
     await server.close();
     process.exit(0);
   });
@@ -111,8 +140,12 @@ async function main(): Promise<void> {
   const backend = config.backends[0];
   console.log(`lengcat-vst listening on http://${config.host}:${config.port}`);
   console.log(`  Proxying to ${backend.type} at ${backend.host}:${backend.port}`);
+  console.log(`  Session dashboard: http://${config.host}:${config.port}/_ui`);
   if (config.auth) {
     console.log('  Proxy authentication: ENABLED');
+  }
+  if (opts.launch) {
+    console.log('  Backend auto-launch: ENABLED');
   }
 }
 
