@@ -77,6 +77,8 @@ function getOrCreateProxy(
 
       // Remove the 'frame-ancestors' CSP directive that would also block the
       // iframe, while preserving any other CSP directives.
+      // Note: we split naively on ';'. This is reliable for VS Code's CSP
+      // because its directives do not contain semicolons inside quoted values.
       const csp = proxyRes.headers['content-security-policy'];
       if (typeof csp === 'string') {
         const stripped = csp

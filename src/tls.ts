@@ -61,11 +61,11 @@ export async function loadOrGenerateTls(
 
   // Generate a new certificate.
   const attrs = [{ name: 'commonName', value: 'lengcat-vst' }];
-  const oneYear = new Date();
-  oneYear.setFullYear(oneYear.getFullYear() + 1);
+  const expiryDate = new Date();
+  expiryDate.setFullYear(expiryDate.getFullYear() + 1);
 
   const pems = await generate(attrs, {
-    notAfterDate: oneYear,
+    notAfterDate: expiryDate,
     extensions: [
       {
         name: 'subjectAltName',

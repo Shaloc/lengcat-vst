@@ -94,7 +94,7 @@ export function renderDashboard(): string {
 
     /* Collapsed: only show the status dot, centred */
     #sidebar.collapsed .session-item {
-      padding: 8px 0; align-items: center; border-color: transparent !important;
+      padding: 8px 0; align-items: center; border-color: transparent;
     }
     #sidebar.collapsed .session-item-name > *:not(.dot) { display: none; }
     #sidebar.collapsed .session-item-meta,

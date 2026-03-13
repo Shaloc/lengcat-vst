@@ -500,10 +500,11 @@ describe('TunnelServer (HTTPS)', () => {
 
     const addr = tunnelServer.httpServer.address() as { port: number };
 
-    // Make an HTTPS request to the proxy (ignoring self-signed cert).
+    // Make an HTTPS request using the self-signed cert as the trusted CA.
+    // This validates the certificate rather than skipping verification.
     const status = await new Promise<number>((resolve, reject) => {
       const req = https.request(
-        { hostname: '127.0.0.1', port: addr.port, path: '/', rejectUnauthorized: false },
+        { hostname: '127.0.0.1', port: addr.port, path: '/', ca: tlsCreds.cert },
         (res) => { res.resume(); resolve(res.statusCode ?? 0); }
       );
       req.on('error', reject);

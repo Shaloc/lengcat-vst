@@ -166,7 +166,12 @@ async function trySpawn(
       proc.removeListener('error', onError);
       // Attach a permanent listener so any post-spawn errors (e.g. the
       // process crashes later) are absorbed rather than crashing us.
-      proc.on('error', () => { /* absorbed */ });
+      // Log to stderr so operators can diagnose unexpected process failures.
+      proc.on('error', (err: Error) => {
+        process.stderr.write(
+          `[lengcat-vst] backend process error (${config.type}): ${err.message}\n`
+        );
+      });
       resolve();
     };
     const onError = (err: Error): void => {
