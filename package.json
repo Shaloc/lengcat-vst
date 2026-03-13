@@ -6,7 +6,13 @@
   "bin": {
     "lengcat-vst": "./dist/index.js"
   },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md"
+  ],
   "scripts": {
+    "prepare": "npm run build",
     "build": "tsc --project tsconfig.json",
     "test": "jest --config jest.config.js",
     "test:e2e": "playwright test",
