@@ -65,11 +65,6 @@ async function startProxy(
   return { tunnel, port };
 }
 
-/** Returns `http://` or `https://` based on whether TLS is active. */
-function origin(port: number, tls?: TlsCredentials): string {
-  return `${tls ? 'https' : 'http'}://127.0.0.1:${port}`;
-}
-
 // ---------------------------------------------------------------------------
 // Prepare the VS Code server binary + TLS cert once for all tests.
 // ---------------------------------------------------------------------------

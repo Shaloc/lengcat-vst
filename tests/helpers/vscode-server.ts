@@ -7,92 +7,24 @@
  * Node.js processes and must be stopped by calling `instance.stop()`.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import * as https from 'https';
 import * as http from 'http';
-import { execSync, spawn, ChildProcess } from 'child_process';
-
-/** Version of code-server whose bundled VS Code server we use for tests. */
-const CODE_SERVER_VERSION = '4.111.0';
-const CODE_SERVER_TARBALL_URL = `https://registry.npmjs.org/code-server/-/code-server-${CODE_SERVER_VERSION}.tgz`;
-
-/** Persistent cache directory so we only download once per machine. */
-const CACHE_DIR = path.join(os.tmpdir(), 'lengcat-vst-vscode-server');
-
-/** Absolute path to the VS Code server's Node entry point after extraction. */
-const VSCODE_SERVER_ENTRY = path.join(
-  CACHE_DIR,
-  'package',
-  'lib',
-  'vscode',
-  'out',
-  'server-main.js'
-);
-
-/** Working directory for the VS Code server process (must contain package.json). */
-const VSCODE_SERVER_CWD = path.join(CACHE_DIR, 'package', 'lib', 'vscode');
-
-/** Download a URL to a local file, following redirects. */
-function downloadFile(url: string, dest: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    const file = fs.createWriteStream(dest);
-
-    function doGet(u: string): void {
-      client.get(u, (res) => {
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          doGet(res.headers.location as string);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`Download failed: ${res.statusCode} ${u}`));
-          return;
-        }
-        res.pipe(file);
-        file.on('finish', () => file.close(() => resolve()));
-        file.on('error', reject);
-      }).on('error', reject);
-    }
-
-    doGet(url);
-  });
-}
+import { spawn, ChildProcess } from 'child_process';
+import {
+  ensureDownloadedServer,
+  DOWNLOADED_SERVER_ENTRY,
+  DOWNLOADED_SERVER_CWD,
+} from '../../src/download';
 
 /**
  * Ensures the VS Code server is extracted and ready to run.
  *
- * On the first call this downloads the code-server npm package (~49 MB) from
- * the npm registry, extracts the bundled VS Code server, and installs its
- * Node.js dependencies.  Subsequent calls return immediately from the cached
- * result.
+ * Delegates to ensureDownloadedServer() from src/download.ts which downloads
+ * the code-server npm package (~49 MB) on the first call and caches the
+ * result so subsequent runs are instant.
  */
 export async function ensureVSCodeServer(): Promise<string> {
-  if (fs.existsSync(VSCODE_SERVER_ENTRY)) {
-    return VSCODE_SERVER_ENTRY;
-  }
-
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-
-  const tarball = path.join(CACHE_DIR, 'code-server.tgz');
-  if (!fs.existsSync(tarball)) {
-    console.log(`[vscode-server] Downloading code-server ${CODE_SERVER_VERSION}...`);
-    await downloadFile(CODE_SERVER_TARBALL_URL, tarball);
-    console.log('[vscode-server] Download complete.');
-  }
-
-  console.log('[vscode-server] Extracting...');
-  execSync(`tar -xzf "${tarball}" -C "${CACHE_DIR}"`);
-
-  console.log('[vscode-server] Installing VS Code server dependencies...');
-  execSync('npm install --ignore-scripts', {
-    cwd: VSCODE_SERVER_CWD,
-    stdio: 'inherit',
-  });
-
-  console.log('[vscode-server] Ready.');
-  return VSCODE_SERVER_ENTRY;
+  await ensureDownloadedServer();
+  return DOWNLOADED_SERVER_ENTRY;
 }
 
 /** Options for starting a VS Code server instance. */
@@ -130,7 +62,7 @@ export async function startVSCodeServer(
   const { port, basePath } = options;
 
   const args: string[] = [
-    VSCODE_SERVER_ENTRY,
+    DOWNLOADED_SERVER_ENTRY,
     '--host', '127.0.0.1',
     '--port', String(port),
     '--without-connection-token',
@@ -143,7 +75,7 @@ export async function startVSCodeServer(
 
   const proc: ChildProcess = spawn(process.execPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
-    cwd: VSCODE_SERVER_CWD,
+    cwd: DOWNLOADED_SERVER_CWD,
   });
 
   // Surface fatal startup errors so tests fail with a clear message.

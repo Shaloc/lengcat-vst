@@ -64,6 +64,10 @@ function getOrCreateProxy(
       target: origin,
       ws: true,
       changeOrigin: true,
+      // Rewrite Location headers in redirects to point to the proxy URL
+      // instead of the raw backend URL, preventing mixed-content errors when
+      // the proxy is serving HTTPS and the backend redirects to an HTTP URL.
+      autoRewrite: true,
       // Do not verify SSL cert of backend (useful for self-signed certs).
       secure: false,
     });

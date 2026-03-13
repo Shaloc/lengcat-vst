@@ -218,7 +218,7 @@ export function renderDashboard(): string {
       <h2>lengcat-vst</h2>
       <p>Select a session from the sidebar to view it here, or create a new one with the <strong>+</strong> button.</p>
     </div>
-    <iframe id="session-frame" style="display:none" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"></iframe>
+    <iframe id="session-frame" style="display:none"></iframe>
   </div>
 </div>
 
