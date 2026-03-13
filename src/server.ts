@@ -175,11 +175,13 @@ function urlPath(url: string): string {
  *   POST /api/sessions/:id/launch   → launch a stopped/errored session
  *   POST /api/sessions/:id/stop     → stop a running session
  *   DELETE /api/sessions/:id        → remove a session
+ *   GET  /api/tls/cert              → download the active TLS certificate (PEM)
  */
 async function handleUiRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  sessions: SessionManager
+  sessions: SessionManager,
+  tls?: TlsCredentials
 ): Promise<void> {
   const method = req.method ?? 'GET';
   const rawPath = urlPath(req.url ?? '');
@@ -324,6 +326,23 @@ async function handleUiRequest(
     return;
   }
 
+  // Export TLS certificate for installation in the system / browser trust store.
+  // Downloading and trusting this certificate resolves Service Worker SSL errors
+  // caused by the browser rejecting the self-signed certificate.
+  if (method === 'GET' && path === '/api/tls/cert') {
+    if (!tls) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No TLS certificate available (server is running over HTTP).' }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/x-pem-file',
+      'Content-Disposition': 'attachment; filename="lengcat-vst-ca.pem"',
+    });
+    res.end(tls.cert);
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found.' }));
 }
@@ -385,7 +404,7 @@ export function createTunnelServer(
       url === '/_ui' || url === '/_ui/' || url.startsWith('/_ui/') ||
       url.startsWith('/api/')
     )) {
-      void handleUiRequest(req, res, sessionMgr);
+      void handleUiRequest(req, res, sessionMgr, tls);
       return;
     }
 

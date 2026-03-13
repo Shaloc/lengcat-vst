@@ -75,6 +75,25 @@ export function renderDashboard(): string {
     #sidebar.collapsed #session-list { padding: 8px 4px; }
     #sidebar.collapsed #no-sessions { display: none !important; }
 
+    #sidebar-footer {
+      padding: 8px;
+      border-top: 1px solid #313244;
+      flex-shrink: 0;
+    }
+    #btn-cert-settings {
+      width: 100%; padding: 7px 10px;
+      background: none; border: 1px solid #45475a; border-radius: 4px;
+      color: #6c7086; font-size: 12px; cursor: pointer;
+      text-align: left; display: flex; align-items: center; gap: 6px;
+      transition: background 0.1s, color 0.1s;
+    }
+    #btn-cert-settings:hover { background: #313244; color: #cdd6f4; }
+    #sidebar.collapsed #btn-cert-settings {
+      width: 32px; height: 32px; padding: 0;
+      justify-content: center; font-size: 16px;
+    }
+    #sidebar.collapsed .btn-cert-label { display: none; }
+
     .session-item {
       padding: 9px 10px; border-radius: 6px;
       margin-bottom: 4px; cursor: pointer;
@@ -221,6 +240,9 @@ export function renderDashboard(): string {
       No sessions yet. Click + to add one.
     </div>
   </div>
+  <div id="sidebar-footer">
+    <button id="btn-cert-settings" title="Certificate settings">⚙ <span class="btn-cert-label">Certificate</span></button>
+  </div>
 </div>
 
 <!-- ── Main ─────────────────────────────────────────────── -->
@@ -310,6 +332,19 @@ export function renderDashboard(): string {
     <div class="modal-actions">
       <button class="btn btn-secondary" id="btn-cancel-launch-modal">Cancel</button>
       <button class="btn btn-primary"   id="btn-confirm-launch-modal">Launch</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Certificate settings modal ───────────────────────── -->
+<div class="modal-backdrop hidden" id="cert-modal-backdrop">
+  <div class="modal" style="width:460px">
+    <h2>⚙ Certificate Settings</h2>
+    <div id="cert-modal-body">
+      <!-- Populated by JS when the modal opens -->
+    </div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn btn-secondary" id="btn-close-cert-modal">Close</button>
     </div>
   </div>
 </div>
@@ -654,6 +689,62 @@ export function renderDashboard(): string {
   btnRemove.addEventListener('click', async () => {
     if (activeId) await removeSession(activeId);
   });
+
+  // ── Certificate settings modal ───────────────────────────────
+  const certModalBackdrop = document.getElementById('cert-modal-backdrop');
+  const certModalBody     = document.getElementById('cert-modal-body');
+
+  function openCertModal() {
+    certModalBackdrop.classList.remove('hidden');
+
+    if (window.location.protocol !== 'https:') {
+      certModalBody.innerHTML =
+        '<p style="font-size:13px;line-height:1.6;color:#a6adc8;margin-bottom:8px;">' +
+          'The proxy is running over <strong>HTTP</strong>. No certificate is available.' +
+        '</p>' +
+        '<p style="font-size:12px;color:#6c7086;line-height:1.5;">' +
+          'Restart the proxy with TLS enabled to generate a certificate that can be exported.' +
+        '</p>';
+      return;
+    }
+
+    certModalBody.innerHTML =
+      '<p style="font-size:13px;line-height:1.6;color:#a6adc8;margin-bottom:12px;">' +
+        'The proxy is running over <strong>HTTPS</strong> with a self-signed certificate.<br>' +
+        'Export and install the certificate in your OS / browser trust store to resolve ' +
+        'Service Worker SSL errors.' +
+      '</p>' +
+      '<div style="margin-bottom:14px;">' +
+        '<button class="btn btn-primary" id="btn-download-cert-action">⬇ Export Certificate (PEM)</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#6c7086;line-height:1.9;">' +
+        '<strong style="color:#89b4fa;">Linux — Debian/Ubuntu (system-wide):</strong><br>' +
+        '<code style="background:#313244;padding:2px 5px;border-radius:3px;">' +
+          'sudo cp lengcat-vst-ca.pem /usr/local/share/ca-certificates/lengcat-vst.crt &amp;&amp; sudo update-ca-certificates' +
+        '</code><br>' +
+        '<strong style="color:#89b4fa;">Linux — RHEL/Fedora/CentOS (system-wide):</strong><br>' +
+        '<code style="background:#313244;padding:2px 5px;border-radius:3px;">' +
+          'sudo cp lengcat-vst-ca.pem /etc/pki/ca-trust/source/anchors/lengcat-vst.pem &amp;&amp; sudo update-ca-trust' +
+        '</code><br>' +
+        '<strong style="color:#89b4fa;">macOS:</strong><br>' +
+        '<code style="background:#313244;padding:2px 5px;border-radius:3px;">' +
+          'sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain lengcat-vst-ca.pem' +
+        '</code><br>' +
+        '<strong style="color:#89b4fa;">Windows:</strong><br>' +
+        'Double-click the <code style="background:#313244;padding:2px 4px;border-radius:3px;">.pem</code> file → ' +
+        'Install Certificate → Local Machine → Trusted Root Certification Authorities' +
+      '</div>';
+
+    document.getElementById('btn-download-cert-action').addEventListener('click', () => {
+      window.location.href = '/api/tls/cert';
+    });
+  }
+  function closeCertModal() {
+    certModalBackdrop.classList.add('hidden');
+  }
+  document.getElementById('btn-cert-settings').addEventListener('click', openCertModal);
+  document.getElementById('btn-close-cert-modal').addEventListener('click', closeCertModal);
+  certModalBackdrop.addEventListener('click', e => { if (e.target === certModalBackdrop) closeCertModal(); });
 
   // ── Polling ──────────────────────────────────────────────────
   function startPolling() {
