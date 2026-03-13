@@ -6,10 +6,12 @@
  */
 
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { ChildProcess, spawn } from 'child_process';
 import { BackendConfig, BackendType } from './config';
+import { ensureDownloadedServer } from './download';
 
 /** Executable names (on PATH) for each supported backend type. */
 const EXECUTABLES: Record<BackendType, string> = {
@@ -153,11 +155,13 @@ export interface ManagedBackend {
 async function trySpawn(
   command: string,
   args: string[],
-  config: BackendConfig
+  config: BackendConfig,
+  cwd?: string
 ): Promise<ManagedBackend> {
   const proc = spawn(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
+    ...(cwd !== undefined ? { cwd } : {}),
   });
 
   // Wait for either successful spawn or an immediate error (e.g. ENOENT).
@@ -199,21 +203,92 @@ async function trySpawn(
 }
 
 /**
+ * Minimal HTTP GET that resolves with the response status code.
+ * Used for backend readiness polling.
+ */
+function httpGet(url: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      res.resume(); // drain the response body
+      resolve(res.statusCode ?? 0);
+    }).on('error', reject);
+  });
+}
+
+/**
+ * Polls the backend's HTTP endpoint until it responds or the process exits.
+ *
+ * VS Code takes a few seconds to start accepting connections after the
+ * process spawns.  This function bridges that gap so callers can be sure
+ * the backend is ready before routing traffic to it.
+ *
+ * @throws When the process exits before becoming ready, or when the timeout
+ *         elapses without a successful HTTP response.
+ */
+async function waitForBackendReady(
+  managed: ManagedBackend,
+  timeoutMs = 30_000
+): Promise<void> {
+  // resolveExecutable normalises 'localhost' → '127.0.0.1' when building
+  // the spawn args, so we check the same address the backend is bound to.
+  const { host, port } = managed.config;
+  const checkHost = host === 'localhost' ? '127.0.0.1' : host;
+  const url = `http://${checkHost}:${port}/`;
+
+  const deadline = Date.now() + timeoutMs;
+  let processExited = false;
+
+  // Detect early process exit so we fail fast instead of waiting the full timeout.
+  managed.waitForExit().then(() => {
+    processExited = true;
+  }).catch(() => {
+    processExited = true;
+  });
+
+  while (Date.now() < deadline) {
+    if (processExited) {
+      throw new Error(
+        `Backend process (${managed.config.type}) exited before becoming ready to accept connections.`
+      );
+    }
+    try {
+      await httpGet(url);
+      return; // Backend is responsive.
+    } catch {
+      // Not ready yet — wait a short interval before retrying.
+      await new Promise<void>((r) => setTimeout(r, 500));
+    }
+  }
+
+  throw new Error(
+    `Backend at ${url} did not become ready within ${timeoutMs / 1000}s.`
+  );
+}
+
+/**
  * Spawns a backend VS Code serve-web process for the given configuration.
  *
- * If the primary executable (from PATH or BackendConfig.executable) is not
- * found, the function automatically falls back to server binaries installed
- * in the user's home directory (~/.vscode-server or ~/.vscodium-server).
- * Server binaries do not need the 'serve-web' subcommand.
+ * Fallback chain (for vscode / vscodium types on ENOENT):
+ *   1. Primary executable on PATH (or BackendConfig.executable).
+ *   2. Server binary installed by Remote-SSH in ~/.vscode-server /
+ *      ~/.vscodium-server.
+ *   3. Automatically downloads the VS Code server bundled in the code-server
+ *      npm package (~49 MB, cached in $TMPDIR/lengcat-vst-vscode-server).
+ *
+ * The function only resolves once the backend is confirmed to be accepting
+ * HTTP connections (readiness poll with a 30 s timeout).
  *
  * @returns A Promise that resolves to a ManagedBackend handle.
- * @throws  When no working executable can be found.
+ * @throws  When no working executable can be found or the backend doesn't
+ *          become ready in time.
  */
 export async function startBackend(config: BackendConfig): Promise<ManagedBackend> {
   const { command, args } = resolveExecutable(config);
 
   try {
-    return await trySpawn(command, args, config);
+    const managed = await trySpawn(command, args, config);
+    await waitForBackendReady(managed);
+    return managed;
   } catch (primaryErr) {
     const errnoErr = primaryErr as NodeJS.ErrnoException;
 
@@ -228,8 +303,28 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
       if (fallbackBin) {
         const fallbackConfig: BackendConfig = { ...config, extensionHostOnly: true };
         const { args: fallbackArgs } = resolveExecutable(fallbackConfig);
-        return trySpawn(fallbackBin, fallbackArgs, fallbackConfig);
+        const managed = await trySpawn(fallbackBin, fallbackArgs, fallbackConfig);
+        await waitForBackendReady(managed);
+        return managed;
       }
+
+      // ── Final fallback: auto-download the VS Code server ──────────────────
+      // Neither the primary binary nor any home-directory installation was
+      // found.  Download the VS Code server bundled inside the code-server
+      // npm package and run it via Node.js.
+      const { entryPoint, cwd } = await ensureDownloadedServer();
+      const downloadedConfig: BackendConfig = { ...config, extensionHostOnly: true };
+      const { args: downloadedArgs } = resolveExecutable(downloadedConfig);
+      // code-server's bundled VS Code server requires this flag.
+      downloadedArgs.push('--accept-server-license-terms');
+      const managed = await trySpawn(
+        process.execPath,               // run with the current Node.js binary
+        [entryPoint, ...downloadedArgs],
+        downloadedConfig,
+        cwd
+      );
+      await waitForBackendReady(managed);
+      return managed;
     }
 
     throw primaryErr;
