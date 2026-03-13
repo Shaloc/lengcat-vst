@@ -40,6 +40,14 @@ export interface BackendConfig {
    * Custom executable path override (for 'custom' type or non-standard installs).
    */
   executable?: string;
+  /**
+   * URL path prefix for this backend instance, used for multi-instance routing.
+   * When set, the proxy routes requests whose URL starts with this prefix to
+   * this backend.  The backend should also be started with the matching
+   * --server-base-path flag (handled automatically by resolveExecutable).
+   * Example: '/instance/1'
+   */
+  pathPrefix?: string;
 }
 
 /** Top-level configuration for the local tunnel proxy. */

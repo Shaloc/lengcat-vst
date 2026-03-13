@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * CLI entry point for the vscodium local tunnel proxy.
+ * CLI entry point for the lengcat-vst local tunnel proxy.
  *
  * Usage:
- *   vscodium-tunnel [options]
+ *   lengcat-vst [options]
  *
  * Options:
  *   --config <path>       Path to JSON config file
@@ -12,6 +12,7 @@
  *   --backend-type <t>    Backend type: vscode|vscodium|lingma|qoder|custom
  *   --backend-host <h>    Backend host (default: localhost)
  *   --backend-port <p>    Backend port
+ *   --path-prefix <p>     Path prefix for the backend (enables multi-instance routing)
  *   --token <secret>      Enable proxy auth with this secret
  *   --no-auth             Disable proxy authentication (default when no token given)
  */
@@ -23,7 +24,7 @@ import { createTunnelServer } from './server';
 const program = new Command();
 
 program
-  .name('vscodium-tunnel')
+  .name('lengcat-vst')
   .description(
     'A private local HTTP tunnel for VS Code / VSCodium serve-web — no public cloud required.'
   )
@@ -40,6 +41,7 @@ program
   )
   .option('--backend-host <host>', 'backend server host', 'localhost')
   .option('--backend-port <port>', 'backend server port')
+  .option('--path-prefix <prefix>', 'path prefix for multi-instance routing (e.g. /instance/1)')
   .option('--token <secret>', 'enable proxy auth; provide the secret token')
   .option(
     '--backend-token <token>',
@@ -54,6 +56,7 @@ const opts = program.opts<{
   backendType: string;
   backendHost: string;
   backendPort?: string;
+  pathPrefix?: string;
   token?: string;
   backendToken?: string;
 }>();
@@ -75,6 +78,7 @@ async function main(): Promise<void> {
       tls: false,
       tokenSource: opts.backendToken ? 'fixed' : 'none',
       token: opts.backendToken,
+      pathPrefix: opts.pathPrefix,
     };
     if (backendPort !== undefined) {
       backendEntry.port = backendPort;
@@ -105,7 +109,7 @@ async function main(): Promise<void> {
   await server.listen();
 
   const backend = config.backends[0];
-  console.log(`vscodium-tunnel listening on http://${config.host}:${config.port}`);
+  console.log(`lengcat-vst listening on http://${config.host}:${config.port}`);
   console.log(`  Proxying to ${backend.type} at ${backend.host}:${backend.port}`);
   if (config.auth) {
     console.log('  Proxy authentication: ENABLED');
