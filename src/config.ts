@@ -1,0 +1,147 @@
+/**
+ * Configuration types and loading for vscodium local tunnel.
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+/** Known VS Code variant types. */
+export type BackendType = 'vscode' | 'vscodium' | 'lingma' | 'qoder' | 'custom';
+
+/** Connection token source. */
+export type TokenSource = 'auto' | 'none' | 'fixed';
+
+/** Configuration for a single backend VS Code server. */
+export interface BackendConfig {
+  /** Variant of the VS Code server. Defaults to 'vscodium'. */
+  type: BackendType;
+  /**
+   * Host of the backend server.
+   * Use 'localhost' for a locally running server (default).
+   */
+  host: string;
+  /** Port the backend VS Code server listens on. */
+  port: number;
+  /**
+   * Whether the backend uses HTTPS/WSS.
+   * Set true only if the backend itself is TLS-terminated.
+   */
+  tls: boolean;
+  /**
+   * Connection token required by the VS Code server.
+   * 'auto' reads from the server process output (only if `managed` is true),
+   * 'none' disables token verification,
+   * 'fixed' uses the value in `token`.
+   */
+  tokenSource: TokenSource;
+  /** Fixed token value when tokenSource is 'fixed'. */
+  token?: string;
+  /**
+   * Custom executable path override (for 'custom' type or non-standard installs).
+   */
+  executable?: string;
+}
+
+/** Top-level configuration for the local tunnel proxy. */
+export interface TunnelConfig {
+  /** Host to bind the local proxy on. Defaults to '127.0.0.1' (loopback only). */
+  host: string;
+  /** Port to bind the local proxy on. Defaults to 3000. */
+  port: number;
+  /**
+   * Whether to require an access token on the proxy itself (independent of
+   * the backend token). Prevents other local processes from accessing the
+   * tunnelled editor.
+   */
+  auth: boolean;
+  /**
+   * Secret used to authenticate requests arriving at the proxy.
+   * Only relevant when `auth` is true.  Sent as a Bearer token in the
+   * Authorization header or as the `token` query-string parameter.
+   */
+  proxySecret?: string;
+  /** Back-end VS Code server(s) to proxy to. */
+  backends: BackendConfig[];
+}
+
+/** Default port per backend type. */
+const DEFAULT_PORTS: Record<BackendType, number> = {
+  vscode: 8000,
+  vscodium: 8000,
+  lingma: 8080,
+  qoder: 8080,
+  custom: 8000,
+};
+
+/**
+ * Builds a BackendConfig with sensible defaults applied.
+ * Caller-supplied values override the defaults.
+ */
+export function buildBackendConfig(partial: Partial<BackendConfig> & { type: BackendType }): BackendConfig {
+  return {
+    host: 'localhost',
+    port: DEFAULT_PORTS[partial.type],
+    tls: false,
+    tokenSource: 'none',
+    ...partial,
+  };
+}
+
+/** Default tunnel configuration. */
+export function defaultConfig(): TunnelConfig {
+  return {
+    host: '127.0.0.1',
+    port: 3000,
+    auth: false,
+    backends: [buildBackendConfig({ type: 'vscodium' })],
+  };
+}
+
+/** Partial backend config as accepted by mergeConfig and loadConfig. */
+export type PartialBackendConfig = Partial<BackendConfig> & { type?: BackendType };
+
+/** Partial tunnel config as accepted by mergeConfig and loadConfig. */
+export type PartialTunnelConfig = Omit<Partial<TunnelConfig>, 'backends'> & {
+  backends?: PartialBackendConfig[];
+};
+
+/**
+ * Loads tunnel configuration from a JSON file.
+ * Missing fields are filled with defaults.
+ *
+ * @param configPath - Absolute or relative path to the JSON config file.
+ */
+export function loadConfig(configPath: string): TunnelConfig {
+  const resolved = path.resolve(configPath);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`Config file not found: ${resolved}`);
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+  } catch (err) {
+    throw new Error(`Failed to parse config file ${resolved}: ${(err as Error).message}`);
+  }
+
+  return mergeConfig(raw as PartialTunnelConfig);
+}
+
+/**
+ * Merges a partial configuration object with defaults.
+ */
+export function mergeConfig(partial: PartialTunnelConfig): TunnelConfig {
+  const defaults = defaultConfig();
+  const merged: TunnelConfig = {
+    ...defaults,
+    ...partial,
+    backends: [],
+  };
+
+  const rawBackends = partial.backends ?? defaults.backends;
+  merged.backends = rawBackends.map((b) =>
+    buildBackendConfig({ ...b, type: b.type ?? 'vscodium' })
+  );
+
+  return merged;
+}
