@@ -433,4 +433,192 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
     expect(r.status).toBe(404);
     await tunnel.close();
   });
+
+  it('POST /api/sessions persists folder and extensionHostOnly', async () => {
+    const { tunnel, port } = await startUiServer();
+    const r = await httpRequest(
+      'POST',
+      `http://127.0.0.1:${port}/api/sessions`,
+      JSON.stringify({ type: 'vscode', port: 9002, launch: false, folder: '/home/user/proj', extensionHostOnly: true })
+    );
+    expect(r.status).toBe(201);
+    const s = JSON.parse(r.body) as { folder?: string; extensionHostOnly?: boolean };
+    expect(s.folder).toBe('/home/user/proj');
+    expect(s.extensionHostOnly).toBe(true);
+    await tunnel.close();
+  });
+
+  it('POST /api/sessions/:id/launch with folder body overrides session folder', async () => {
+    const mgr = new SessionManager();
+    mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
+    const s = mgr.list()[0];
+    const { tunnel, port } = await startUiServer(mgr);
+    // Launch should fail (no real process) but the folder should be recorded.
+    await httpRequest(
+      'POST',
+      `http://127.0.0.1:${port}/api/sessions/${s.id}/launch`,
+      JSON.stringify({ folder: '/my/folder' })
+    );
+    // Regardless of launch success, the session folder should be set.
+    expect(mgr.get(s.id)?.folder).toBe('/my/folder');
+    await tunnel.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTTPS server — createTunnelServer with TLS credentials
+// ---------------------------------------------------------------------------
+
+import * as https from 'https';
+
+describe('TunnelServer (HTTPS)', () => {
+  it('createTunnelServer with TLS credentials returns isHttps=true', async () => {
+    const { server: echo, port: echoPort } = await startEchoServer('secure');
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [{ type: 'vscodium', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
+    });
+
+    // Lazy-load the TLS generation only for this test (avoids slowing others).
+    const { loadOrGenerateTls } = await import('../src/tls');
+    const tlsCreds = await loadOrGenerateTls();
+
+    const tunnelServer = createTunnelServer(config, undefined, tlsCreds);
+    expect(tunnelServer.isHttps).toBe(true);
+    expect(tunnelServer.httpServer).toBeInstanceOf(https.Server);
+
+    await new Promise<void>((resolve, reject) => {
+      tunnelServer.httpServer.once('error', reject);
+      tunnelServer.httpServer.listen(0, '127.0.0.1', () => {
+        tunnelServer.httpServer.off('error', reject);
+        resolve();
+      });
+    });
+
+    const addr = tunnelServer.httpServer.address() as { port: number };
+
+    // Make an HTTPS request using the self-signed cert as the trusted CA.
+    // This validates the certificate rather than skipping verification.
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = https.request(
+        { hostname: '127.0.0.1', port: addr.port, path: '/', ca: tlsCreds.cert },
+        (res) => { res.resume(); resolve(res.statusCode ?? 0); }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+    // The proxy should forward to the echo backend → 200.
+    expect(status).toBe(200);
+
+    await tunnelServer.close();
+    await new Promise<void>((resolve) => echo.close(() => resolve()));
+  });
+
+  it('createTunnelServer without TLS returns isHttps=false', () => {
+    const config = mergeConfig({
+      host: '127.0.0.1', port: 0, auth: false,
+      backends: [{ type: 'vscodium', host: '127.0.0.1', port: 8000, tls: false, tokenSource: 'none' }],
+    });
+    const tunnel = createTunnelServer(config);
+    expect(tunnel.isHttps).toBe(false);
+    expect(tunnel.httpServer).toBeInstanceOf(http.Server);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proxy header fixups — X-Frame-Options and CSP
+// ---------------------------------------------------------------------------
+
+describe('TunnelServer (proxy header fixups)', () => {
+  /** Starts a server that sends back the given response headers. */
+  function startHeaderEchoServer(
+    responseHeaders: Record<string, string>
+  ): Promise<{ server: http.Server; port: number }> {
+    return new Promise((resolve, reject) => {
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain', ...responseHeaders });
+        res.end('ok');
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as { port: number };
+        resolve({ server, port: addr.port });
+      });
+      server.once('error', reject);
+    });
+  }
+
+  /** Makes an HTTP GET and returns the status + selected response headers. */
+  function httpGetHeaders(
+    url: string
+  ): Promise<{ status: number; headers: Record<string, string | string[]> }> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const req = http.request(
+        { hostname: parsed.hostname, port: parsed.port, path: parsed.pathname },
+        (res) => {
+          res.resume();
+          resolve({ status: res.statusCode ?? 0, headers: res.headers as Record<string, string> });
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('strips X-Frame-Options from proxied responses', async () => {
+    const { server: backend, port: backendPort } = await startHeaderEchoServer({
+      'x-frame-options': 'DENY',
+    });
+
+    const config = mergeConfig({
+      host: '127.0.0.1', port: 0, auth: false,
+      backends: [{ type: 'vscodium', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
+    });
+
+    const tunnel = createTunnelServer(config);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const { port } = tunnel.httpServer.address() as { port: number };
+
+    const { headers } = await httpGetHeaders(`http://127.0.0.1:${port}/`);
+    expect(headers['x-frame-options']).toBeUndefined();
+
+    await tunnel.close();
+    await new Promise<void>((resolve) => backend.close(() => resolve()));
+  });
+
+  it('removes frame-ancestors from Content-Security-Policy', async () => {
+    const { server: backend, port: backendPort } = await startHeaderEchoServer({
+      'content-security-policy': "default-src 'self'; frame-ancestors 'none'; script-src 'self'",
+    });
+
+    const config = mergeConfig({
+      host: '127.0.0.1', port: 0, auth: false,
+      backends: [{ type: 'vscodium', host: '127.0.0.1', port: backendPort, tls: false, tokenSource: 'none' }],
+    });
+
+    const tunnel = createTunnelServer(config);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const { port } = tunnel.httpServer.address() as { port: number };
+
+    const { headers } = await httpGetHeaders(`http://127.0.0.1:${port}/`);
+    const csp = headers['content-security-policy'] as string | undefined;
+    // frame-ancestors must be gone.
+    expect(csp).not.toMatch(/frame-ancestors/i);
+    // Other directives must survive.
+    expect(csp).toMatch(/default-src/);
+    expect(csp).toMatch(/script-src/);
+
+    await tunnel.close();
+    await new Promise<void>((resolve) => backend.close(() => resolve()));
+  });
 });

@@ -13,6 +13,7 @@
  */
 
 import * as http from 'http';
+import * as https from 'https';
 import * as net from 'net';
 import httpProxy from 'http-proxy';
 import { BackendConfig, BackendType, TunnelConfig, buildBackendConfig } from './config';
@@ -20,14 +21,17 @@ import { backendOrigin } from './backends';
 import { createAuthMiddleware } from './auth';
 import { SessionManager } from './session';
 import { renderDashboard } from './ui';
+import type { TlsCredentials } from './tls';
 
 export interface TunnelServer {
-  /** The underlying Node.js HTTP server. */
-  httpServer: http.Server;
+  /** The underlying Node.js HTTP (or HTTPS) server. */
+  httpServer: http.Server | https.Server;
   /** Start listening on the configured host/port. */
   listen(): Promise<void>;
   /** Gracefully close the server and proxy. */
   close(): Promise<void>;
+  /** True when the server is serving over TLS (HTTPS / WSS). */
+  isHttps: boolean;
 }
 
 /**
@@ -64,6 +68,45 @@ function getOrCreateProxy(
       secure: false,
     });
 
+    // ── HTTP response fixups ────────────────────────────────────────────────
+    // Strip headers that would prevent VS Code from loading inside the
+    // dashboard iframe.
+    proxy.on('proxyRes', (proxyRes: http.IncomingMessage) => {
+      // X-Frame-Options: DENY/SAMEORIGIN blocks iframe embedding entirely.
+      delete proxyRes.headers['x-frame-options'];
+
+      // Remove the 'frame-ancestors' CSP directive that would also block the
+      // iframe, while preserving any other CSP directives.
+      // Note: we split naively on ';'. This is reliable for VS Code's CSP
+      // because its directives do not contain semicolons inside quoted values.
+      const csp = proxyRes.headers['content-security-policy'];
+      if (typeof csp === 'string') {
+        const stripped = csp
+          .split(';')
+          .filter((d) => !/^\s*frame-ancestors\b/i.test(d))
+          .join(';')
+          .trim()
+          .replace(/;$/, '');
+        if (stripped) {
+          proxyRes.headers['content-security-policy'] = stripped;
+        } else {
+          delete proxyRes.headers['content-security-policy'];
+        }
+      }
+    });
+
+    // ── WebSocket upgrade fixup ─────────────────────────────────────────────
+    // VS Code's server validates the Origin header on WebSocket upgrades.
+    // The browser sends the proxy's origin (e.g. http://192.168.1.10:3000)
+    // which VS Code doesn't recognise, causing it to reject the upgrade and
+    // producing a status-1006 close on the client side.  Replacing Origin
+    // with the backend's own origin makes VS Code treat the connection as
+    // coming from itself and accept it.
+    proxy.on('proxyReqWs', (proxyReq: http.ClientRequest) => {
+      proxyReq.setHeader('Origin', origin);
+    });
+
+    // ── Error handling ──────────────────────────────────────────────────────
     proxy.on('error', (err: Error, _req: http.IncomingMessage, res: http.ServerResponse | net.Socket) => {
       if (res instanceof http.ServerResponse) {
         if (!res.headersSent) {
@@ -71,6 +114,16 @@ function getOrCreateProxy(
         }
         res.end(JSON.stringify({ error: 'Bad Gateway', detail: err.message }));
       } else if (res instanceof net.Socket) {
+        // The WebSocket upgrade to the backend failed before the browser
+        // received a 101.  Send an HTTP 502 so the browser gets a clean
+        // error instead of a raw socket close (which shows as WS 1006).
+        if (res.writable) {
+          res.write(
+            'HTTP/1.1 502 Bad Gateway\r\n' +
+            'Content-Length: 0\r\n' +
+            'Connection: close\r\n\r\n'
+          );
+        }
         res.destroy();
       }
     });
@@ -157,6 +210,8 @@ async function handleUiRequest(
     const tokenSource = (body.tokenSource as string | undefined) ?? 'none';
     const token = typeof body.token === 'string' ? body.token : undefined;
     const executable = typeof body.executable === 'string' ? body.executable : undefined;
+    const folder = typeof body.folder === 'string' && body.folder ? body.folder : undefined;
+    const extensionHostOnly = body.extensionHostOnly === true;
     const shouldLaunch = body.launch !== false;
 
     const config = buildBackendConfig({
@@ -167,6 +222,8 @@ async function handleUiRequest(
       tokenSource: tokenSource as 'none' | 'fixed' | 'auto',
       token,
       executable,
+      folder,
+      extensionHostOnly,
     });
 
     const session = sessions.register(config);
@@ -186,11 +243,24 @@ async function handleUiRequest(
   }
 
   // Launch session
+  // Accepts an optional JSON body: { folder?: string }
   const launchMatch = /^\/api\/sessions\/([^/]+)\/launch$/.exec(path);
   if (method === 'POST' && launchMatch) {
     const id = launchMatch[1];
+    let folder: string | undefined;
     try {
-      await sessions.launch(id);
+      const raw = await readBody(req);
+      if (raw.trim()) {
+        const body = JSON.parse(raw) as Record<string, unknown>;
+        folder = typeof body.folder === 'string' && body.folder ? body.folder : undefined;
+      }
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body.' }));
+      return;
+    }
+    try {
+      await sessions.launch(id, folder);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessions.get(id)));
     } catch (err) {
@@ -248,8 +318,15 @@ async function handleUiRequest(
  * @param sessionMgr    Optional SessionManager.  When provided the proxy
  *                      uses its live session list for routing and serves the
  *                      session-management dashboard at /_ui.
+ * @param tls           Optional TLS credentials.  When supplied the server
+ *                      listens over HTTPS/WSS so that browsers grant the page
+ *                      a secure context (required by some VS Code extensions).
  */
-export function createTunnelServer(config: TunnelConfig, sessionMgr?: SessionManager): TunnelServer {
+export function createTunnelServer(
+  config: TunnelConfig,
+  sessionMgr?: SessionManager,
+  tls?: TlsCredentials
+): TunnelServer {
   if (config.backends.length === 0 && !sessionMgr) {
     throw new Error('At least one backend must be configured.');
   }
@@ -274,7 +351,8 @@ export function createTunnelServer(config: TunnelConfig, sessionMgr?: SessionMan
     return config.backends;
   }
 
-  const server = http.createServer((req, res) => {
+  // ── Request handler (shared between HTTP and HTTPS) ─────────────────────
+  const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const url = req.url ?? '/';
 
     // ── Dashboard / session-management API ──
@@ -311,9 +389,17 @@ export function createTunnelServer(config: TunnelConfig, sessionMgr?: SessionMan
     } else {
       proxy.web(req, res);
     }
-  });
+  };
 
-  // Proxy WebSocket upgrade requests.
+  // ── Create HTTP or HTTPS server ──────────────────────────────────────────
+  const server: http.Server | https.Server = tls
+    ? https.createServer({ cert: tls.cert, key: tls.key }, requestHandler)
+    : http.createServer(requestHandler);
+
+  // ── WebSocket / WSS upgrade handler ─────────────────────────────────────
+  // Registered on the server so it handles both ws:// (HTTP server) and
+  // wss:// (HTTPS server — TLS is already unwrapped by Node.js before the
+  // upgrade event fires).
   server.on('upgrade', (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
     const url = req.url ?? '/';
 
@@ -353,6 +439,7 @@ export function createTunnelServer(config: TunnelConfig, sessionMgr?: SessionMan
 
   return {
     httpServer: server,
+    isHttps: !!tls,
     listen(): Promise<void> {
       return new Promise((resolve, reject) => {
         server.once('error', reject);

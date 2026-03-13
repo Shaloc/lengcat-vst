@@ -5,6 +5,9 @@
  * serve-web process for each supported variant type.
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { ChildProcess, spawn } from 'child_process';
 import { BackendConfig, BackendType } from './config';
 
@@ -26,8 +29,72 @@ export interface BackendExecutable {
 }
 
 /**
+ * Searches for a VS Code-flavour server binary installed in the user's home
+ * directory by the Remote-SSH extension (or a VSCodium equivalent).
+ *
+ * Checked locations, newest-first:
+ *  - ~/.vscode-server/cli/servers/Stable-<hash>/server/bin/code-server
+ *  - ~/.vscode-server/bin/<hash>/bin/code-server  (legacy Remote-SSH layout)
+ *
+ * Returns `undefined` when nothing is found.
+ */
+export function findServerBinaryInHomeDir(
+  type: 'vscode' | 'vscodium'
+): string | undefined {
+  const serverDirName =
+    type === 'vscode' ? '.vscode-server' : '.vscodium-server';
+  const serverRoot = path.join(os.homedir(), serverDirName);
+  const binName = type === 'vscode' ? 'code-server' : 'codium-server';
+
+  // CLI-style install (newer): Stable-<hash>/server/bin/<binName>
+  const cliServersDir = path.join(serverRoot, 'cli', 'servers');
+  if (fs.existsSync(cliServersDir)) {
+    try {
+      const entries = fs
+        .readdirSync(cliServersDir)
+        .filter((e) => /^Stable-/.test(e))
+        .sort()
+        .reverse();
+      for (const entry of entries) {
+        const candidate = path.join(
+          cliServersDir,
+          entry,
+          'server',
+          'bin',
+          binName
+        );
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    } catch {
+      /* directory not readable – skip */
+    }
+  }
+
+  // Legacy Remote-SSH style: bin/<hash>/bin/<binName>
+  const legacyBinDir = path.join(serverRoot, 'bin');
+  if (fs.existsSync(legacyBinDir)) {
+    try {
+      const entries = fs.readdirSync(legacyBinDir).sort().reverse();
+      for (const entry of entries) {
+        const candidate = path.join(legacyBinDir, entry, 'bin', binName);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    } catch {
+      /* directory not readable – skip */
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Resolves the executable and default CLI args needed to start a given
  * backend in serve-web mode.
+ *
+ * When `config.extensionHostOnly` is true the `serve-web` subcommand is
+ * omitted — the binary is already the VS Code server (e.g. a
+ * `~/.vscode-server` Remote-SSH installation) and does not accept that
+ * subcommand.
  */
 export function resolveExecutable(config: BackendConfig): BackendExecutable {
   let command: string;
@@ -42,11 +109,15 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     command = EXECUTABLES[config.type];
   }
 
-  const args = [
-    'serve-web',
+  // Extension-host-only servers (e.g. ~/.vscode-server binary installed by
+  // Remote SSH) are already the server; they do not accept a 'serve-web'
+  // subcommand.
+  const args: string[] = config.extensionHostOnly ? [] : ['serve-web'];
+
+  args.push(
     '--host', config.host === 'localhost' ? '127.0.0.1' : config.host,
     '--port', String(config.port),
-  ];
+  );
 
   if (config.pathPrefix) {
     args.push('--server-base-path', config.pathPrefix);
@@ -72,24 +143,47 @@ export interface ManagedBackend {
 }
 
 /**
- * Spawns a backend VS Code serve-web process for the given configuration.
+ * Attempts to spawn `command` with `args` and waits for the OS-level
+ * 'spawn' event (success) or 'error' event (e.g. ENOENT).
  *
- * @returns A ManagedBackend handle that wraps the child process.
+ * Returns the ManagedBackend on success, or throws on failure.
+ * A permanent 'error' listener is attached so post-spawn errors never
+ * become unhandled events that would crash the Node.js process.
  */
-export function startBackend(config: BackendConfig): ManagedBackend {
-  const { command, args } = resolveExecutable(config);
-
+async function trySpawn(
+  command: string,
+  args: string[],
+  config: BackendConfig
+): Promise<ManagedBackend> {
   const proc = spawn(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
 
-  let exitCode: number | null = null;
+  // Wait for either successful spawn or an immediate error (e.g. ENOENT).
+  await new Promise<void>((resolve, reject) => {
+    const onSpawn = (): void => {
+      proc.removeListener('error', onError);
+      // Attach a permanent listener so any post-spawn errors (e.g. the
+      // process crashes later) are absorbed rather than crashing us.
+      // Log to stderr so operators can diagnose unexpected process failures.
+      proc.on('error', (err: Error) => {
+        process.stderr.write(
+          `[lengcat-vst] backend process error (${config.type}): ${err.message}\n`
+        );
+      });
+      resolve();
+    };
+    const onError = (err: Error): void => {
+      proc.removeListener('spawn', onSpawn);
+      reject(err);
+    };
+    proc.once('spawn', onSpawn);
+    proc.once('error', onError);
+  });
+
   const exitPromise = new Promise<number | null>((resolve) => {
-    proc.on('exit', (code) => {
-      exitCode = code;
-      resolve(exitCode);
-    });
+    proc.on('exit', (code) => resolve(code));
   });
 
   return {
@@ -102,6 +196,44 @@ export function startBackend(config: BackendConfig): ManagedBackend {
       }
     },
   };
+}
+
+/**
+ * Spawns a backend VS Code serve-web process for the given configuration.
+ *
+ * If the primary executable (from PATH or BackendConfig.executable) is not
+ * found, the function automatically falls back to server binaries installed
+ * in the user's home directory (~/.vscode-server or ~/.vscodium-server).
+ * Server binaries do not need the 'serve-web' subcommand.
+ *
+ * @returns A Promise that resolves to a ManagedBackend handle.
+ * @throws  When no working executable can be found.
+ */
+export async function startBackend(config: BackendConfig): Promise<ManagedBackend> {
+  const { command, args } = resolveExecutable(config);
+
+  try {
+    return await trySpawn(command, args, config);
+  } catch (primaryErr) {
+    const errnoErr = primaryErr as NodeJS.ErrnoException;
+
+    // On ENOENT for known types, try home-directory server binaries.
+    // These binaries don't use the 'serve-web' subcommand, so re-resolve
+    // with extensionHostOnly: true to get the right arg list.
+    if (
+      errnoErr.code === 'ENOENT' &&
+      (config.type === 'vscode' || config.type === 'vscodium')
+    ) {
+      const fallbackBin = findServerBinaryInHomeDir(config.type);
+      if (fallbackBin) {
+        const fallbackConfig: BackendConfig = { ...config, extensionHostOnly: true };
+        const { args: fallbackArgs } = resolveExecutable(fallbackConfig);
+        return trySpawn(fallbackBin, fallbackArgs, fallbackConfig);
+      }
+    }
+
+    throw primaryErr;
+  }
 }
 
 /**

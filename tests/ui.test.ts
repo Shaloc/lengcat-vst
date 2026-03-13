@@ -54,4 +54,26 @@ describe('renderDashboard', () => {
     expect(html).toContain('id="btn-stop"');
     expect(html).toContain('id="btn-remove"');
   });
+
+  it('contains the sidebar toggle button', () => {
+    expect(html).toContain('id="btn-toggle-sidebar"');
+  });
+
+  it('contains the launch-with-folder modal', () => {
+    expect(html).toContain('id="launch-modal-backdrop"');
+    expect(html).toContain('id="launch-folder"');
+    expect(html).toContain('id="btn-confirm-launch-modal"');
+  });
+
+  it('contains the extensionHostOnly checkbox in the new-session modal', () => {
+    expect(html).toContain('id="new-ext-host"');
+  });
+
+  it('contains the folder input in the new-session modal', () => {
+    expect(html).toContain('id="new-folder"');
+  });
+
+  it('the launch folder input name is referenced in the script', () => {
+    expect(html).toContain('launch-folder');
+  });
 });

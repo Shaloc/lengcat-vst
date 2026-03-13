@@ -48,6 +48,22 @@ export interface BackendConfig {
    * Example: '/instance/1'
    */
   pathPrefix?: string;
+  /**
+   * Local filesystem path to open as the default workspace / folder.
+   * When set, the folder is appended as a `?folder=<path>` query parameter in
+   * the iframe URL shown by the dashboard.
+   * Example: '/home/user/my-project'
+   */
+  folder?: string;
+  /**
+   * When true the backend binary is an extension-host-only server (e.g. the
+   * `code-server` binary installed by VS Code Remote-SSH at
+   * `~/.vscode-server/bin/<hash>/bin/code-server`).  In this mode the proxy
+   * does NOT pass the `serve-web` subcommand — the binary already IS the
+   * server.  HTTP + WebSocket are still forwarded as normal, so the browser
+   * can reach the VS Code web workbench served by the binary.
+   */
+  extensionHostOnly?: boolean;
 }
 
 /** Top-level configuration for the local tunnel proxy. */
@@ -70,6 +86,26 @@ export interface TunnelConfig {
   proxySecret?: string;
   /** Back-end VS Code server(s) to proxy to. */
   backends: BackendConfig[];
+  /**
+   * Enable HTTPS on the proxy.  When true the proxy serves TLS-encrypted
+   * HTTP/WebSocket so that browsers grant the page a "secure context"
+   * (required by some VS Code extensions, e.g. clipboard, camera).
+   *
+   * Defaults to `false` for backwards compatibility; set to `true` (or use
+   * the `--https` CLI flag) to enable.
+   */
+  https?: boolean;
+  /**
+   * Path to a PEM-encoded TLS certificate file.
+   * Only used when `https` is true.  If omitted a self-signed certificate is
+   * auto-generated and cached in `$TMPDIR/lengcat-vst-tls/`.
+   */
+  tlsCert?: string;
+  /**
+   * Path to a PEM-encoded TLS private-key file.
+   * Only used when `https` is true.  Must be provided together with `tlsCert`.
+   */
+  tlsKey?: string;
 }
 
 /** Default port per backend type. */

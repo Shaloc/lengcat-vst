@@ -164,12 +164,12 @@ describe('SessionManager.launch (mocked spawn)', () => {
     await expect(mgr.launch('ghost')).rejects.toThrow('not found');
   });
 
-  it('sets status to error when startBackend throws', async () => {
-    // Override startBackend via module mocking.
+  it('sets status to error when startBackend rejects', async () => {
+    // Override startBackend via module mocking (now async — return rejected promise).
     jest.resetModules();
     jest.mock('../src/backends', () => ({
       ...jest.requireActual('../src/backends'),
-      startBackend: () => { throw new Error('spawn failed'); },
+      startBackend: () => Promise.reject(new Error('spawn failed')),
     }));
     const { SessionManager: SM, _resetCounter: rc } = await import('../src/session');
     rc();
@@ -180,6 +180,35 @@ describe('SessionManager.launch (mocked spawn)', () => {
     await expect(mgr.launch(s.id)).rejects.toThrow('spawn failed');
     expect(mgr.get(s.id)!.status).toBe('error');
     expect(mgr.get(s.id)!.errorMessage).toBe('spawn failed');
+
+    jest.resetModules();
+    jest.restoreAllMocks();
+  });
+
+  it('launch(id, folder) stores the folder override on the session', async () => {
+    jest.resetModules();
+    jest.mock('../src/backends', () => ({
+      ...jest.requireActual('../src/backends'),
+      startBackend: (cfg: import('../src/config').BackendConfig) =>
+        Promise.resolve({
+          process: { pid: 1234, killed: false, on: () => ({}) } as never,
+          config: cfg,
+          waitForExit: () => new Promise(() => { /* never resolves in test */ }),
+          stop: () => { /* noop */ },
+        }),
+    }));
+    const { SessionManager: SM, _resetCounter: rc } = await import('../src/session');
+    rc();
+    const mgr = new SM();
+    const cfg = buildBackendConfig({ type: 'vscodium', port: 8000 });
+    const s = mgr.register(cfg);
+
+    await mgr.launch(s.id, '/home/user/project');
+
+    const info = mgr.get(s.id)!;
+    expect(info.folder).toBe('/home/user/project');
+    expect(info.config.folder).toBe('/home/user/project');
+    expect(info.status).toBe('running');
 
     jest.resetModules();
     jest.restoreAllMocks();
