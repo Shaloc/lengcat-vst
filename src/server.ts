@@ -97,15 +97,19 @@ function urlPath(url: string): string {
 }
 
 /**
- * Handles requests to the /_ui route family.
+ * Handles requests to the dashboard and session-management API.
+ *
+ * The dashboard is served at the root so that opening the proxy URL in a
+ * browser immediately shows the session manager.  The legacy /_ui path is
+ * kept as an alias for backwards compatibility.
  *
  * Routes:
- *   GET  /_ui             → session-management dashboard HTML
- *   GET  /_ui/api/sessions          → list all sessions (JSON)
- *   POST /_ui/api/sessions          → create (and optionally launch) a session
- *   POST /_ui/api/sessions/:id/launch → launch a stopped/errored session
- *   POST /_ui/api/sessions/:id/stop   → stop a running session
- *   DELETE /_ui/api/sessions/:id      → remove a session
+ *   GET  /                          → session-management dashboard HTML (alias: /_ui)
+ *   GET  /api/sessions              → list all sessions (JSON)
+ *   POST /api/sessions              → create (and optionally launch) a session
+ *   POST /api/sessions/:id/launch   → launch a stopped/errored session
+ *   POST /api/sessions/:id/stop     → stop a running session
+ *   DELETE /api/sessions/:id        → remove a session
  */
 async function handleUiRequest(
   req: http.IncomingMessage,
@@ -113,24 +117,31 @@ async function handleUiRequest(
   sessions: SessionManager
 ): Promise<void> {
   const method = req.method ?? 'GET';
-  const path = urlPath(req.url ?? '');
+  const rawPath = urlPath(req.url ?? '');
 
-  // Dashboard
-  if (method === 'GET' && (path === '/_ui' || path === '/_ui/')) {
+  // Normalise legacy /_ui prefix → /  so all matching below uses clean paths.
+  const path = rawPath === '/_ui' || rawPath === '/_ui/'
+    ? '/'
+    : rawPath.startsWith('/_ui/api/')
+      ? rawPath.replace('/_ui/api/', '/api/')
+      : rawPath;
+
+  // Dashboard (root or legacy /_ui)
+  if (method === 'GET' && (path === '/' || path === '/_ui' || path === '/_ui/')) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(renderDashboard());
     return;
   }
 
   // List sessions
-  if (method === 'GET' && path === '/_ui/api/sessions') {
+  if (method === 'GET' && path === '/api/sessions') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(sessions.toJSON()));
     return;
   }
 
   // Create session
-  if (method === 'POST' && path === '/_ui/api/sessions') {
+  if (method === 'POST' && path === '/api/sessions') {
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(await readBody(req)) as Record<string, unknown>;
@@ -175,7 +186,7 @@ async function handleUiRequest(
   }
 
   // Launch session
-  const launchMatch = /^\/_ui\/api\/sessions\/([^/]+)\/launch$/.exec(path);
+  const launchMatch = /^\/api\/sessions\/([^/]+)\/launch$/.exec(path);
   if (method === 'POST' && launchMatch) {
     const id = launchMatch[1];
     try {
@@ -183,14 +194,16 @@ async function handleUiRequest(
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessions.get(id)));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: (err as Error).message }));
+      const msg = (err as Error).message;
+      const status = msg.includes('not found') ? 404 : 500;
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: msg }));
     }
     return;
   }
 
   // Stop session
-  const stopMatch = /^\/_ui\/api\/sessions\/([^/]+)\/stop$/.exec(path);
+  const stopMatch = /^\/api\/sessions\/([^/]+)\/stop$/.exec(path);
   if (method === 'POST' && stopMatch) {
     const id = stopMatch[1];
     try {
@@ -205,7 +218,7 @@ async function handleUiRequest(
   }
 
   // Remove session
-  const removeMatch = /^\/_ui\/api\/sessions\/([^/]+)$/.exec(path);
+  const removeMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
   if (method === 'DELETE' && removeMatch) {
     const id = removeMatch[1];
     const removed = sessions.remove(id);
@@ -265,7 +278,13 @@ export function createTunnelServer(config: TunnelConfig, sessionMgr?: SessionMan
     const url = req.url ?? '/';
 
     // ── Dashboard / session-management API ──
-    if (sessionMgr && (url === '/_ui' || url === '/_ui/' || url.startsWith('/_ui/'))) {
+    // When a SessionManager is active, the root URL serves the dashboard and
+    // /api/* serves the REST API.  Legacy /_ui paths are also accepted.
+    if (sessionMgr && (
+      url === '/' ||
+      url === '/_ui' || url === '/_ui/' || url.startsWith('/_ui/') ||
+      url.startsWith('/api/')
+    )) {
       void handleUiRequest(req, res, sessionMgr);
       return;
     }
@@ -298,8 +317,8 @@ export function createTunnelServer(config: TunnelConfig, sessionMgr?: SessionMan
   server.on('upgrade', (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
     const url = req.url ?? '/';
 
-    // Block WS upgrades to the UI paths (they are not proxied).
-    if (sessionMgr && url.startsWith('/_ui/')) {
+    // Block WS upgrades to UI/API paths (they are not proxied).
+    if (sessionMgr && (url === '/' || url.startsWith('/_ui/') || url.startsWith('/api/'))) {
       socket.write('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n');
       socket.destroy();
       return;

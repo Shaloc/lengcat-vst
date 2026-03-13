@@ -37,8 +37,8 @@ describe('renderDashboard', () => {
     expect(html).toContain('id="modal-backdrop"');
   });
 
-  it('contains the API URL /_ui/api/sessions in the script', () => {
-    expect(html).toContain('/_ui/api/sessions');
+  it('contains the API URL /api/sessions in the script', () => {
+    expect(html).toContain('/api/sessions');
   });
 
   it('references all expected backend types in the new-session form', () => {

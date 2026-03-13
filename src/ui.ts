@@ -7,7 +7,7 @@
  *   - A "New Session" dialog for creating and launching a new backend.
  *   - Buttons for launching/stopping individual sessions.
  *
- * All interaction with the proxy is done via the REST API at /_ui/api/*.
+ * All interaction with the proxy is done via the REST API at /api/*.
  */
 
 export function renderDashboard(): string {
@@ -165,7 +165,7 @@ export function renderDashboard(): string {
 
 <!-- ── Main ─────────────────────────────────────────────── -->
 <div id="main">
-  <div id="error-banner" id="error-banner"></div>
+  <div id="error-banner"></div>
   <div id="toolbar">
     <span id="toolbar-title">No session selected</span>
     <button class="btn btn-primary"  id="btn-launch" style="display:none">Launch</button>
@@ -353,7 +353,7 @@ export function renderDashboard(): string {
   // ── API calls ────────────────────────────────────────────────
   async function fetchSessions() {
     try {
-      sessions = await apiFetch('/_ui/api/sessions');
+      sessions = await apiFetch('/api/sessions');
       renderSessionList();
       updateToolbar();
       loadFrame();
@@ -361,13 +361,13 @@ export function renderDashboard(): string {
   }
 
   async function launchSession(id) {
-    await apiFetch('/_ui/api/sessions/' + id + '/launch', { method: 'POST' });
+    await apiFetch('/api/sessions/' + id + '/launch', { method: 'POST' });
     await fetchSessions();
     selectSession(id);
   }
 
   async function stopSession(id) {
-    await apiFetch('/_ui/api/sessions/' + id + '/stop', { method: 'POST' });
+    await apiFetch('/api/sessions/' + id + '/stop', { method: 'POST' });
     frame.style.display = 'none';
     welcome.style.display = 'flex';
     await fetchSessions();
@@ -375,7 +375,7 @@ export function renderDashboard(): string {
 
   async function removeSession(id) {
     if (!confirm('Remove this session?')) return;
-    await apiFetch('/_ui/api/sessions/' + id, { method: 'DELETE' });
+    await apiFetch('/api/sessions/' + id, { method: 'DELETE' });
     if (activeId === id) {
       activeId = null;
       frame.style.display = 'none';
@@ -403,7 +403,7 @@ export function renderDashboard(): string {
       executable: executable || undefined,
     };
 
-    const session = await apiFetch('/_ui/api/sessions', {
+    const session = await apiFetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

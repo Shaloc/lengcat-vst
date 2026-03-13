@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   const backend = config.backends[0];
   console.log(`lengcat-vst listening on http://${config.host}:${config.port}`);
   console.log(`  Proxying to ${backend.type} at ${backend.host}:${backend.port}`);
-  console.log(`  Session dashboard: http://${config.host}:${config.port}/_ui`);
+  console.log(`  Open http://${config.host}:${config.port}/ in your browser to manage sessions`);
   if (config.auth) {
     console.log('  Proxy authentication: ENABLED');
   }

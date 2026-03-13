@@ -276,7 +276,7 @@ describe('TunnelServer (multi-instance path-prefix routing)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Session Manager dashboard and REST API (/_ui/*)
+// Session Manager dashboard and REST API (/api/* (and / for dashboard))
 // ---------------------------------------------------------------------------
 
 import { SessionManager, _resetCounter } from '../src/session';
@@ -324,39 +324,39 @@ async function startUiServer(sessions?: SessionManager): Promise<{ tunnel: Retur
   return { tunnel, port: addr.port, mgr };
 }
 
-describe('TunnelServer (/_ui dashboard and API)', () => {
+describe('TunnelServer (/ dashboard and /api/* API)', () => {
   beforeEach(() => { _resetCounter(); });
 
-  it('serves the HTML dashboard at GET /_ui', async () => {
+  it('serves the HTML dashboard at GET /', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpGet(`http://127.0.0.1:${port}/_ui`);
+    const r = await httpGet(`http://127.0.0.1:${port}/`);
     expect(r.status).toBe(200);
     expect(r.body).toContain('lengcat-vst');
     expect(r.body).toContain('session-list');
     await tunnel.close();
   });
 
-  it('also serves the dashboard at GET /_ui/', async () => {
+  it('backward-compat: /_ui alias also serves the dashboard', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpGet(`http://127.0.0.1:${port}/_ui/`);
+    const r = await httpGet(`http://127.0.0.1:${port}/_ui`);
     expect(r.status).toBe(200);
     expect(r.body).toContain('<!DOCTYPE html>');
     await tunnel.close();
   });
 
-  it('GET /_ui/api/sessions returns an empty array initially', async () => {
+  it('GET /api/sessions returns an empty array initially', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpGet(`http://127.0.0.1:${port}/_ui/api/sessions`);
+    const r = await httpGet(`http://127.0.0.1:${port}/api/sessions`);
     expect(r.status).toBe(200);
     expect(JSON.parse(r.body)).toEqual([]);
     await tunnel.close();
   });
 
-  it('GET /_ui/api/sessions returns pre-registered sessions', async () => {
+  it('GET /api/sessions returns pre-registered sessions', async () => {
     const mgr = new SessionManager();
     mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
     const { tunnel, port } = await startUiServer(mgr);
-    const r = await httpGet(`http://127.0.0.1:${port}/_ui/api/sessions`);
+    const r = await httpGet(`http://127.0.0.1:${port}/api/sessions`);
     const sessions = JSON.parse(r.body) as { id: string; type: string; status: string }[];
     expect(sessions).toHaveLength(1);
     expect(sessions[0].type).toBe('vscodium');
@@ -364,9 +364,9 @@ describe('TunnelServer (/_ui dashboard and API)', () => {
     await tunnel.close();
   });
 
-  it('POST /_ui/api/sessions creates a new session (launch=false)', async () => {
+  it('POST /api/sessions creates a new session (launch=false)', async () => {
     const { tunnel, port, mgr } = await startUiServer();
-    const r = await httpRequest('POST', `http://127.0.0.1:${port}/_ui/api/sessions`,
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions`,
       JSON.stringify({ type: 'vscode', port: 9001, launch: false }));
     expect(r.status).toBe(201);
     const session = JSON.parse(r.body) as { id: string; status: string; type: string };
@@ -376,57 +376,60 @@ describe('TunnelServer (/_ui dashboard and API)', () => {
     await tunnel.close();
   });
 
-  it('POST /_ui/api/sessions with invalid JSON returns 400', async () => {
+  it('POST /api/sessions with invalid JSON returns 400', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpRequest('POST', `http://127.0.0.1:${port}/_ui/api/sessions`, 'not-json');
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions`, 'not-json');
     expect(r.status).toBe(400);
     await tunnel.close();
   });
 
-  it('DELETE /_ui/api/sessions/:id removes the session', async () => {
+  it('DELETE /api/sessions/:id removes the session', async () => {
     const mgr = new SessionManager();
     const s = mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
     const { tunnel, port } = await startUiServer(mgr);
-    const r = await httpRequest('DELETE', `http://127.0.0.1:${port}/_ui/api/sessions/${s.id}`);
+    const r = await httpRequest('DELETE', `http://127.0.0.1:${port}/api/sessions/${s.id}`);
     expect(r.status).toBe(204);
     expect(mgr.list()).toHaveLength(0);
     await tunnel.close();
   });
 
-  it('DELETE /_ui/api/sessions/:id with unknown id returns 404', async () => {
+  it('DELETE /api/sessions/:id with unknown id returns 404', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpRequest('DELETE', `http://127.0.0.1:${port}/_ui/api/sessions/ghost`);
+    const r = await httpRequest('DELETE', `http://127.0.0.1:${port}/api/sessions/ghost`);
     expect(r.status).toBe(404);
     await tunnel.close();
   });
 
-  it('POST /_ui/api/sessions/:id/stop returns 404 for unknown session', async () => {
+  it('POST /api/sessions/:id/stop returns 404 for unknown session', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpRequest('POST', `http://127.0.0.1:${port}/_ui/api/sessions/ghost/stop`);
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/ghost/stop`);
     expect(r.status).toBe(404);
     await tunnel.close();
   });
 
-  it('POST /_ui/api/sessions/:id/launch returns 404 for unknown session', async () => {
+  it('POST /api/sessions/:id/launch returns 404 for unknown session', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpRequest('POST', `http://127.0.0.1:${port}/_ui/api/sessions/ghost/launch`);
-    expect(r.status).toBe(500);
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/ghost/launch`);
+    expect(r.status).toBe(404);
     await tunnel.close();
   });
 
-  it('returns 503 when no sessions are running and session manager has no running sessions', async () => {
+  it('returns 503 for session paths when no sessions are running', async () => {
     const mgr = new SessionManager();
     // Register a session but don't launch it → status stays 'stopped'
-    mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
+    const s = mgr.register(buildBackendConfig({ type: 'vscodium', port: 8000 }));
     const { tunnel, port } = await startUiServer(mgr);
-    const r = await httpGet(`http://127.0.0.1:${port}/`);
-    expect(r.status).toBe(503);
+    // The root '/' now serves the dashboard; a session-prefix path returns 503.
+    const dashboardRes = await httpGet(`http://127.0.0.1:${port}/`);
+    expect(dashboardRes.status).toBe(200);
+    const sessionRes = await httpGet(`http://127.0.0.1:${port}${s.pathPrefix}/`);
+    expect(sessionRes.status).toBe(503);
     await tunnel.close();
   });
 
-  it('unknown /_ui API path returns 404', async () => {
+  it('unknown /api path returns 404', async () => {
     const { tunnel, port } = await startUiServer();
-    const r = await httpGet(`http://127.0.0.1:${port}/_ui/api/unknown`);
+    const r = await httpGet(`http://127.0.0.1:${port}/api/unknown`);
     expect(r.status).toBe(404);
     await tunnel.close();
   });
