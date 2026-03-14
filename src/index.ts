@@ -185,7 +185,7 @@ async function main(): Promise<void> {
     const parsed = parseInt(process.env.LEDUO_PATROL_PORT ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 3001;
   })();
-  const leduoHost = process.env.LEDUO_PATROL_HOST ?? '127.0.0.1';
+  const leduoHost = process.env.LEDUO_PATROL_HOST ?? 'localhost';
   const leduoSession = sessionMgr.register(buildBackendConfig({
     type: 'leduoPatrol',
     host: leduoHost,

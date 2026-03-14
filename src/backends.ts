@@ -327,7 +327,6 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
   if (config.type === 'leduoPatrol') {
     const projectDir =
       process.env.LEDUO_PATROL_DIR ??
-      process.env.LEDUO_PARTROL_DIR ??
       path.join(os.homedir(), '.lengcat-vst', 'leduo-patrol');
     if (!fs.existsSync(projectDir)) {
       throw new Error(
