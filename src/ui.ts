@@ -580,6 +580,19 @@ export function renderDashboard(): string {
     return 'dot dot-' + (status || 'stopped');
   }
 
+  function displaySessionType(type) {
+    return type === 'leduoPatrol' ? 'leduo-patrol' : type;
+  }
+
+  function sortSessionsForDisplay(list) {
+    return [...list].sort((a, b) => {
+      const aPinned = a.type === 'leduoPatrol' ? 0 : 1;
+      const bPinned = b.type === 'leduoPatrol' ? 0 : 1;
+      if (aPinned !== bPinned) return aPinned - bPinned;
+      return 0;
+    });
+  }
+
   function escHtml(str) {
     return String(str)
       .replace(/&/g, '&amp;')
@@ -612,7 +625,7 @@ export function renderDashboard(): string {
       el.innerHTML =
         '<div class="session-item-name">' +
           '<span class="' + statusDotClass(s.status) + '"></span>' +
-          escHtml(s.type + ' :' + s.port) +
+          escHtml(displaySessionType(s.type) + ' :' + s.port) +
           extBadge +
         '</div>' +
         '<div class="session-item-meta">' + escHtml(s.pathPrefix) + '</div>' +
@@ -635,7 +648,7 @@ export function renderDashboard(): string {
       return;
     }
     const extLabel = s.extensionHostOnly ? ' [ext-host]' : '';
-    toolbarTitle.textContent = s.type + extLabel + ' — port ' + s.port + ' — ' + s.pathPrefix;
+    toolbarTitle.textContent = displaySessionType(s.type) + extLabel + ' — port ' + s.port + ' — ' + s.pathPrefix;
     btnLaunch.style.display     = s.status === 'stopped' || s.status === 'error' ? 'inline-block' : 'none';
     btnStop.style.display       = s.status === 'running' || s.status === 'starting' ? 'inline-block' : 'none';
     btnOpenNewTab.style.display = s.status === 'running' ? 'inline-block' : 'none';
@@ -720,7 +733,7 @@ export function renderDashboard(): string {
   // ── API calls ────────────────────────────────────────────────
   async function fetchSessions() {
     try {
-      sessions = await apiFetch('/api/sessions');
+      sessions = sortSessionsForDisplay(await apiFetch('/api/sessions'));
       renderSessionList();
       updateToolbar();
       loadFrame();

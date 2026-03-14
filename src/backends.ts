@@ -9,6 +9,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as http from 'http';
+import * as fs from 'fs';
 import { ChildProcess, spawn } from 'child_process';
 import { BackendConfig, BackendType } from './config';
 import { ensureCodeServer } from './download';
@@ -17,6 +18,7 @@ import { ensureCodeServer } from './download';
 const EXECUTABLES: Record<BackendType, string> = {
   vscode: 'code',  // kept for resolveExecutable; startBackend uses ensureCodeServer
   custom: '',      // resolved from BackendConfig.executable
+  leduoPatrol: 'npm',
 };
 
 /**
@@ -59,6 +61,10 @@ export interface BackendExecutable {
  * used for `type === 'custom'`.
  */
 export function resolveExecutable(config: BackendConfig): BackendExecutable {
+  if (config.type === 'leduoPatrol') {
+    return { command: EXECUTABLES.leduoPatrol, args: ['start'] };
+  }
+
   let command: string;
   if (config.type === 'custom') {
     if (!config.executable) {
@@ -169,12 +175,14 @@ async function trySpawn(
   command: string,
   args: string[],
   config: BackendConfig,
-  cwd?: string
+  cwd?: string,
+  env?: NodeJS.ProcessEnv
 ): Promise<ManagedBackend> {
   const proc = spawn(command, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     ...(cwd !== undefined ? { cwd } : {}),
+    ...(env !== undefined ? { env } : {}),
   });
 
   // Collect stderr so that, if the process exits before becoming ready, the
@@ -316,6 +324,28 @@ async function waitForBackendReady(
  *          ready in time.
  */
 export async function startBackend(config: BackendConfig): Promise<ManagedBackend> {
+  if (config.type === 'leduoPatrol') {
+    const projectDir =
+      process.env.LEDUO_PATROL_DIR ??
+      process.env.LEDUO_PARTROL_DIR ??
+      path.join(os.homedir(), '.lengcat-vst', 'leduo-patrol');
+    if (!fs.existsSync(projectDir)) {
+      throw new Error(
+        `leduo-patrol directory not found: ${projectDir}. ` +
+        `Set LEDUO_PATROL_DIR to the cloned leduo-patrol project path.`
+      );
+    }
+    const { command, args } = resolveExecutable(config);
+    const env = {
+      ...process.env,
+      HOST: config.host,
+      PORT: String(config.port),
+    };
+    const managed = await trySpawn(command, args, config, projectDir, env);
+    await waitForBackendReady(managed);
+    return managed;
+  }
+
   if (config.type === 'vscode') {
     // Always use the managed code-server binary for VS Code.
     const binPath = await ensureCodeServer((msg) => {

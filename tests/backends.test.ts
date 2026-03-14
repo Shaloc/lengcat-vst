@@ -22,6 +22,13 @@ describe('resolveExecutable', () => {
     expect(command).toBe('/opt/myide/bin/myide');
   });
 
+  it('uses npm start for leduoPatrol backend', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol' });
+    const { command, args } = resolveExecutable(config);
+    expect(command).toBe('npm');
+    expect(args).toEqual(['start']);
+  });
+
   it('throws if custom type has no executable', () => {
     const config = buildBackendConfig({ type: 'custom' });
     expect(() => resolveExecutable(config)).toThrow(

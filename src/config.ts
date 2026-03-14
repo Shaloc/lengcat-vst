@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /** Supported backend types. */
-export type BackendType = 'vscode' | 'custom';
+export type BackendType = 'vscode' | 'custom' | 'leduoPatrol';
 
 /** Connection token source. */
 export type TokenSource = 'auto' | 'none' | 'fixed';
@@ -135,6 +135,7 @@ export interface TunnelConfig {
 const DEFAULT_PORTS: Record<BackendType, number> = {
   vscode: 8000,
   custom: 8000,
+  leduoPatrol: 3001,
 };
 
 /**
