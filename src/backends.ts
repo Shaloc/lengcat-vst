@@ -19,6 +19,25 @@ const EXECUTABLES: Record<BackendType, string> = {
   custom: '',      // resolved from BackendConfig.executable
 };
 
+/**
+ * Grace time passed to VS Code's built-in `serve-web --connection-grace-time`.
+ * Set to a very large value (~115 days) so the server does NOT auto-exit when
+ * all browser tabs are closed.  Background tasks (AI agents, terminals) continue
+ * running until the session is explicitly stopped via the dashboard.
+ *
+ * NOTE: code-server (coder/code-server) uses a different flag:
+ *       `--idle-timeout-seconds` (see buildCodeServerArgs / CODE_SERVER_IDLE_TIMEOUT_SECONDS).
+ */
+const VSCODE_CONNECTION_GRACE_TIME_SECONDS = 9999999; // ~115 days
+
+/**
+ * Idle timeout passed to code-server's `--idle-timeout-seconds`.
+ * Set to a very large value (~115 days) so code-server does NOT exit when all
+ * browser tabs are closed.  This is the code-server equivalent of
+ * VSCODE_CONNECTION_GRACE_TIME_SECONDS (the two binaries use different flags).
+ */
+const CODE_SERVER_IDLE_TIMEOUT_SECONDS = 9999999; // ~115 days
+
 /** Result of resolving the executable path for a backend. */
 export interface BackendExecutable {
   /** The resolved command/executable. */
@@ -72,6 +91,20 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     args.push('--without-connection-token');
   }
 
+  // Prevent the VS Code server from suspending the extension host when the last
+  // browser client disconnects.  By default VS Code exits (or suspends
+  // extension-host activity) after its built-in grace period once all tabs
+  // close, which pauses AI agents, terminals, and background tasks.  Setting
+  // --connection-grace-time to a very large value (~115 days) keeps the
+  // extension host fully active until the session is explicitly stopped via
+  // the dashboard.
+  // NOTE: this flag is a VS Code *server-level* flag — it applies both when
+  //       the binary runs as a serve-web server AND when it runs as an
+  //       extension-host-only server (extensionHostOnly: true).
+  //       code-server (coder/code-server) uses --idle-timeout-seconds instead;
+  //       that is handled in buildCodeServerArgs() below.
+  args.push('--connection-grace-time', String(VSCODE_CONNECTION_GRACE_TIME_SECONDS));
+
   return { command, args };
 }
 
@@ -94,6 +127,13 @@ export function buildCodeServerArgs(config: BackendConfig): string[] {
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
     '--user-data-dir', userDataDir,
+    // Set code-server's idle timeout to a very large value (~115 days) so it
+    // does NOT deactivate the extension host or exit when all browser tabs are
+    // closed.  This keeps AI agents, terminals, and background tasks alive in
+    // VS Code even when no browser window is open.
+    // NOTE: setting this to 0 means "0 seconds" (immediate shutdown on idle),
+    // NOT "disabled".  Use CODE_SERVER_IDLE_TIMEOUT_SECONDS for a safe large value.
+    '--idle-timeout-seconds', String(CODE_SERVER_IDLE_TIMEOUT_SECONDS),
   ];
   // Note: code-server does not support a --base-path / --server-base-path flag.
   // Path prefix routing is handled by the lengcat-vst proxy, which strips the

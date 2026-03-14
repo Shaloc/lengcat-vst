@@ -118,6 +118,17 @@ export interface TunnelConfig {
    * Example: `["mydev.company.internal", "10.0.1.5"]`
    */
   tlsDomains?: string[];
+  /**
+   * Password required to access the dashboard and proxied sessions via the
+   * browser.  When set, visitors are redirected to a `/_login` form and must
+   * enter the correct password before a session cookie is issued.
+   *
+   * This is independent of `proxySecret` / `auth` (which use Bearer-token
+   * authentication and apply to all requests).  Use `dashboardPassword` for
+   * a convenient browser-friendly login and `proxySecret` for API-level
+   * protection.
+   */
+  dashboardPassword?: string;
 }
 
 /** Default port per backend type. */

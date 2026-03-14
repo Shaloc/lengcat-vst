@@ -91,6 +91,10 @@ program
     'comma-separated extra hostnames/IPs to include in the auto-generated TLS certificate SANs (e.g. mydev.local,10.0.1.5)'
   )
   .option(
+    '--dashboard-password <password>',
+    'protect the dashboard with a browser login form; visitors must enter this password'
+  )
+  .option(
     '--launch',
     'automatically start each configured backend VS Code/VSCodium server'
   );
@@ -116,6 +120,7 @@ const opts = process.argv[2] !== 'install'
       tlsCert?: string;
       tlsKey?: string;
       tlsDomains?: string;
+      dashboardPassword?: string;
       launch?: boolean;
     }>()
   : ({} as {
@@ -134,6 +139,7 @@ const opts = process.argv[2] !== 'install'
       tlsCert?: string;
       tlsKey?: string;
       tlsDomains?: string;
+      dashboardPassword?: string;
       launch?: boolean;
     });
 
@@ -167,6 +173,7 @@ async function main(): Promise<void> {
       port: parseInt(opts.port, 10),
       auth: !!opts.token,
       proxySecret: opts.token,
+      dashboardPassword: opts.dashboardPassword,
       backends: [backendEntry],
     });
   }
@@ -275,6 +282,9 @@ async function main(): Promise<void> {
   }
   if (config.auth) {
     console.log('  Proxy authentication: ENABLED');
+  }
+  if (config.dashboardPassword) {
+    console.log('  Dashboard password protection: ENABLED (login at /_login)');
   }
   if (opts.launch) {
     console.log('  Backend auto-launch: ENABLED');

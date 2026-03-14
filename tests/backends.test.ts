@@ -78,6 +78,23 @@ describe('resolveExecutable', () => {
     const { args } = resolveExecutable(config);
     expect(args[0]).toBe('serve-web');
   });
+
+  it('includes --connection-grace-time for serve-web backends', () => {
+    const config = buildBackendConfig({ type: 'vscode' });
+    const { args } = resolveExecutable(config);
+    expect(args).toContain('--connection-grace-time');
+    const idx = args.indexOf('--connection-grace-time');
+    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
+  });
+
+  it('includes --connection-grace-time for extensionHostOnly backends to keep extension host alive when all tabs close', () => {
+    const config = buildBackendConfig({ type: 'vscode', extensionHostOnly: true });
+    const { args } = resolveExecutable(config);
+    expect(args).toContain('--connection-grace-time');
+    const idx = args.indexOf('--connection-grace-time');
+    // Must be a large positive value — same as serve-web, prevents extension host suspension.
+    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
+  });
 });
 
 describe('buildCodeServerArgs', () => {
@@ -136,6 +153,15 @@ describe('buildCodeServerArgs', () => {
     const argsWithout = buildCodeServerArgs(withoutPrefix);
     // pathPrefix doesn't affect code-server args — only the proxy config differs
     expect(argsWith).toEqual(argsWithout);
+  });
+
+  it('includes --idle-timeout-seconds with a large value to keep code-server alive when all tabs close', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).toContain('--idle-timeout-seconds');
+    const idx = args.indexOf('--idle-timeout-seconds');
+    // Must be a large positive value — NOT 0 (which means "immediate shutdown on idle").
+    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
   });
 });
 
