@@ -1,6 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
-import { resolveExecutable, backendOrigin, buildCodeServerArgs } from '../src/backends';
+import * as fs from 'fs';
+import { resolveExecutable, backendOrigin, buildCodeServerArgs, loadDotEnv } from '../src/backends';
 import { buildBackendConfig } from '../src/config';
 
 describe('resolveExecutable', () => {
@@ -194,5 +195,56 @@ describe('backendOrigin', () => {
   it('returns https origin for tls backend', () => {
     const config = buildBackendConfig({ type: 'vscode', host: 'myserver', port: 443, tls: true });
     expect(backendOrigin(config)).toBe('https://myserver:443');
+  });
+});
+
+describe('loadDotEnv', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loadDotEnv-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns empty object when .env file does not exist', () => {
+    expect(loadDotEnv(tmpDir)).toEqual({});
+  });
+
+  it('parses simple key=value pairs', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'FOO=bar\nBAZ=qux\n');
+    expect(loadDotEnv(tmpDir)).toEqual({ FOO: 'bar', BAZ: 'qux' });
+  });
+
+  it('strips surrounding double quotes from values', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'KEY="hello world"\n');
+    expect(loadDotEnv(tmpDir)).toEqual({ KEY: 'hello world' });
+  });
+
+  it('strips surrounding single quotes from values', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), "KEY='hello world'\n");
+    expect(loadDotEnv(tmpDir)).toEqual({ KEY: 'hello world' });
+  });
+
+  it('strips surrounding quotes from single-character values', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'A="x"\nB=\'y\'\n');
+    expect(loadDotEnv(tmpDir)).toEqual({ A: 'x', B: 'y' });
+  });
+
+  it('ignores comment lines starting with #', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), '# this is a comment\nFOO=bar\n');
+    expect(loadDotEnv(tmpDir)).toEqual({ FOO: 'bar' });
+  });
+
+  it('ignores blank lines', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), '\nFOO=bar\n\n');
+    expect(loadDotEnv(tmpDir)).toEqual({ FOO: 'bar' });
+  });
+
+  it('handles values that contain = signs', () => {
+    fs.writeFileSync(path.join(tmpDir, '.env'), 'KEY=a=b=c\n');
+    expect(loadDotEnv(tmpDir)).toEqual({ KEY: 'a=b=c' });
   });
 });

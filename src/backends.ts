@@ -14,6 +14,35 @@ import { ChildProcess, spawn } from 'child_process';
 import { BackendConfig, BackendType } from './config';
 import { ensureCodeServer } from './download';
 
+/**
+ * Parses a `.env` file and returns its key/value pairs.
+ * Lines that are empty or start with `#` are skipped.
+ * Values may be wrapped in single or double quotes (which are stripped).
+ * If the file does not exist an empty object is returned.
+ */
+export function loadDotEnv(dir: string): Record<string, string> {
+  const envPath = path.join(dir, '.env');
+  if (!fs.existsSync(envPath)) return {};
+  const result: Record<string, string> = {};
+  for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let value = trimmed.slice(eqIdx + 1).trim();
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
 /** Executable names (on PATH) for each supported backend type. */
 const EXECUTABLES: Record<BackendType, string> = {
   vscode: 'code',  // kept for resolveExecutable; startBackend uses ensureCodeServer
@@ -344,8 +373,10 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
       );
     }
     const { command, args } = resolveExecutable(config);
+    const dotEnv = loadDotEnv(projectDir);
     const env = {
       ...process.env,
+      ...dotEnv,
       HOST: config.host,
       PORT: String(config.port),
       LEDUO_PATROL_ACCESS_KEY: config.accessKey || process.env.LEDUO_PATROL_ACCESS_KEY,
