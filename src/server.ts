@@ -39,11 +39,37 @@ export interface TunnelServer {
 const SESSION_COOKIE_NAME = 'lvst_session';
 
 /**
+ * A random server-instance secret mixed into the session-token HMAC.
+ * Generated once at startup so that session cookies are invalidated when
+ * the proxy restarts (requiring re-authentication), and so that knowledge
+ * of the dashboard password alone is not enough to forge a cookie.
+ */
+const _instanceSecret = crypto.randomBytes(32).toString('hex');
+
+/**
  * Derives the expected session-cookie value from the given password.
- * Uses HMAC-SHA256 so the password is never stored in the cookie itself.
+ * Uses HMAC-SHA256 keyed on a per-instance random secret so that the
+ * cookie cannot be forged even if the password is known.
  */
 function computeSessionToken(password: string): string {
-  return crypto.createHmac('sha256', password).update('lvst-session-v1').digest('hex');
+  return crypto
+    .createHmac('sha256', _instanceSecret)
+    .update(`lvst-session-v1:${password}`)
+    .digest('hex');
+}
+
+/** Returns true when `submitted` equals `expected` in constant time. */
+function timingSafeStringEqual(submitted: string, expected: string): boolean {
+  const a = Buffer.from(submitted);
+  const b = Buffer.from(expected);
+  // Run timingSafeEqual even on length mismatch to avoid short-circuit
+  // timing differences that could leak password length information.
+  const padded = Buffer.alloc(Math.max(a.length, b.length));
+  a.copy(padded, 0, 0, Math.min(a.length, padded.length));
+  const paddedB = Buffer.alloc(padded.length);
+  b.copy(paddedB, 0, 0, Math.min(b.length, paddedB.length));
+  const equal = crypto.timingSafeEqual(padded, paddedB);
+  return equal && a.length === b.length;
 }
 
 /** Extracts the value of a named cookie from the Cookie request header. */
@@ -105,7 +131,7 @@ async function handleLoginRequest(
       // Fall through with empty password → will fail the check below.
     }
 
-    if (password === config.dashboardPassword) {
+    if (timingSafeStringEqual(password, config.dashboardPassword!)) {
       const token = computeSessionToken(config.dashboardPassword!);
       const flags = [
         `${SESSION_COOKIE_NAME}=${token}`,

@@ -151,6 +151,14 @@ describe('buildCodeServerArgs', () => {
     // pathPrefix doesn't affect code-server args — only the proxy config differs
     expect(argsWith).toEqual(argsWithout);
   });
+
+  it('includes --idle-timeout-seconds 0 to keep code-server alive when all tabs close', () => {
+    const config = buildBackendConfig({ type: 'vscode', port: 8080 });
+    const args = buildCodeServerArgs(config);
+    expect(args).toContain('--idle-timeout-seconds');
+    const idx = args.indexOf('--idle-timeout-seconds');
+    expect(args[idx + 1]).toBe('0');
+  });
 });
 
 describe('backendOrigin', () => {

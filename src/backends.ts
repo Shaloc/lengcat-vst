@@ -19,6 +19,17 @@ const EXECUTABLES: Record<BackendType, string> = {
   custom: '',      // resolved from BackendConfig.executable
 };
 
+/**
+ * Grace time passed to VS Code's built-in `serve-web --connection-grace-time`.
+ * Set to a very large value (~115 days) so the server does NOT auto-exit when
+ * all browser tabs are closed.  Background tasks (AI agents, terminals) continue
+ * running until the session is explicitly stopped via the dashboard.
+ *
+ * NOTE: code-server (coder/code-server) uses a different flag:
+ *       `--idle-timeout-seconds 0` (see buildCodeServerArgs).
+ */
+const VSCODE_CONNECTION_GRACE_TIME_SECONDS = 9999999; // ~115 days
+
 /** Result of resolving the executable path for a backend. */
 export interface BackendExecutable {
   /** The resolved command/executable. */
@@ -72,14 +83,18 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     args.push('--without-connection-token');
   }
 
-  // Prevent VS Code from shutting down when the last browser client
-  // disconnects.  By default VS Code's serve-web exits after a grace period
-  // (--connection-grace-time) once all tabs are closed, which would kill
-  // background tasks such as AI agents and running terminals.  Setting this
-  // to a very large value (~115 days) effectively keeps the server alive
-  // until it is explicitly stopped via the dashboard.
+  // Prevent VS Code's serve-web from shutting down when the last browser
+  // client disconnects.  By default VS Code's serve-web exits after a grace
+  // period (--connection-grace-time) once all tabs are closed, which would
+  // kill background tasks such as AI agents and running terminals.  Setting
+  // this to a very large value (VSCODE_CONNECTION_GRACE_TIME_SECONDS, ~115
+  // days) effectively keeps the server alive until it is explicitly stopped
+  // via the dashboard.
+  // NOTE: this flag is specific to VS Code's built-in serve-web subcommand.
+  //       code-server (coder/code-server) uses --idle-timeout-seconds instead;
+  //       that is handled in buildCodeServerArgs() below.
   if (!config.extensionHostOnly) {
-    args.push('--connection-grace-time', '9999999');
+    args.push('--connection-grace-time', String(VSCODE_CONNECTION_GRACE_TIME_SECONDS));
   }
 
   return { command, args };
@@ -104,6 +119,12 @@ export function buildCodeServerArgs(config: BackendConfig): string[] {
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
     '--user-data-dir', userDataDir,
+    // Disable code-server's idle timeout so it does NOT exit when all browser
+    // tabs are closed.  This keeps AI agents, terminals, and background tasks
+    // alive in VS Code even when no browser window is open.
+    // code-server's --idle-timeout-seconds differs from VS Code serve-web's
+    // --connection-grace-time; setting it to 0 disables the timeout entirely.
+    '--idle-timeout-seconds', '0',
   ];
   // Note: code-server does not support a --base-path / --server-base-path flag.
   // Path prefix routing is handled by the lengcat-vst proxy, which strips the
