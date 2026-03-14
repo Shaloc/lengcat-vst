@@ -427,11 +427,44 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
     await tunnel.close();
   });
 
-  it('unknown /api path returns 404', async () => {
+  it('non-dashboard /api path returns 503 when no sessions are running', async () => {
+    // /api/config, /api/state etc. are backend API paths (e.g. from leduoPatrol)
+    // and must NOT be intercepted by the dashboard router.  With no running
+    // sessions the proxy returns 503 instead of 404.
     const { tunnel, port } = await startUiServer();
-    const r = await httpGet(`http://127.0.0.1:${port}/api/unknown`);
+    const r = await httpGet(`http://127.0.0.1:${port}/api/config`);
+    expect(r.status).toBe(503);
+    await tunnel.close();
+  });
+
+  it('unknown dashboard /api/sessions path returns 404', async () => {
+    // A path that IS under /api/sessions (dashboard scope) but doesn't match
+    // any known endpoint still returns 404 from handleUiRequest.
+    const { tunnel, port } = await startUiServer();
+    const r = await httpGet(`http://127.0.0.1:${port}/api/sessions/ghost/unknown-action`);
     expect(r.status).toBe(404);
     await tunnel.close();
+  });
+
+  it('proxies backend /api/ paths to the running session when a session is running', async () => {
+    // When a leduoPatrol session is running, paths like /api/config and
+    // /api/state must be forwarded to the backend, not caught by the dashboard.
+    const { server: echo, port: echoPort } = await startEchoServer('{"ok":true}');
+    const mgr = new SessionManager();
+    const s = mgr.register(
+      buildBackendConfig({ type: 'leduoPatrol', host: '127.0.0.1', port: echoPort })
+    );
+    // Simulate a running session without spawning a real process.
+    s.status = 'running';
+
+    const { tunnel, port } = await startUiServer(mgr);
+
+    const r = await httpGet(`http://127.0.0.1:${port}/api/config?key=test`);
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('{"ok":true}');
+
+    await tunnel.close();
+    await new Promise<void>((resolve) => echo.close(() => resolve()));
   });
 
   it('GET /api/tls/cert returns 404 when server has no TLS credentials', async () => {

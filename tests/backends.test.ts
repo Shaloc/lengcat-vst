@@ -265,7 +265,34 @@ describe('buildLeduoPatrolEnv', () => {
       { HOST: 'old-host', PORT: '9999' }
     );
     expect(env.HOST).toBe('0.0.0.0');
+    // dotEnv has no PORT → falls back to config.port (4000), overriding processEnv.PORT (9999)
     expect(env.PORT).toBe('4000');
+  });
+
+  it('uses dotEnv PORT over config.port (preserves the API-server port)', () => {
+    // When the .env file explicitly declares PORT (the internal API-server port),
+    // that value must win over config.port so that LEDUO_PATROL_WEB_PORT and
+    // PORT can be different.
+    const config = buildBackendConfig({ type: 'leduoPatrol', port: 3001 });
+    const env = buildLeduoPatrolEnv(config, { PORT: '4000' }, {});
+    expect(env.PORT).toBe('4000');
+  });
+
+  it('falls back to config.port when dotEnv PORT is absent or empty', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol', port: 3001 });
+    expect(buildLeduoPatrolEnv(config, {}, {}).PORT).toBe('3001');
+    expect(buildLeduoPatrolEnv(config, { PORT: '' }, {}).PORT).toBe('3001');
+  });
+
+  it('passes LEDUO_PATROL_WEB_PORT through from dotEnv unchanged', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol', port: 3001 });
+    const env = buildLeduoPatrolEnv(
+      config,
+      { PORT: '3001', LEDUO_PATROL_WEB_PORT: '5173' },
+      {}
+    );
+    expect(env.PORT).toBe('3001');
+    expect(env.LEDUO_PATROL_WEB_PORT).toBe('5173');
   });
 
   it('spreads processEnv values', () => {

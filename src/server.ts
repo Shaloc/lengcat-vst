@@ -546,11 +546,17 @@ export function createTunnelServer(
 
     // ── Dashboard / session-management API ──
     // When a SessionManager is active, the root URL serves the dashboard and
-    // /api/* serves the REST API.  Legacy /_ui paths are also accepted.
+    // the specific /api/sessions* and /api/tls/cert routes serve the REST API.
+    // Legacy /_ui paths are also accepted.
+    //
+    // IMPORTANT: only the exact dashboard-API paths are intercepted here.
+    // Any other /api/* path (e.g. /api/config or /api/state served by a
+    // leduoPatrol backend) must fall through to the backend-proxy logic below.
     if (sessionMgr && (
       url === '/' ||
       url === '/_ui' || url === '/_ui/' || url.startsWith('/_ui/') ||
-      url.startsWith('/api/')
+      rawPath === '/api/sessions' || rawPath.startsWith('/api/sessions/') ||
+      rawPath === '/api/tls/cert'
     )) {
       void handleUiRequest(req, res, sessionMgr, tls);
       return;
@@ -623,8 +629,16 @@ export function createTunnelServer(
       return;
     }
 
-    // Block WS upgrades to UI/API paths (they are not proxied).
-    if (sessionMgr && (url === '/' || url.startsWith('/_ui/') || url.startsWith('/api/'))) {
+    // Block WS upgrades to the internal dashboard / session-management paths
+    // (they have no WebSocket API).  Other /api/* paths belong to the backend
+    // and must be proxied through, not blocked.
+    const wsRawPath = url.split('?')[0];
+    if (sessionMgr && (
+      url === '/' ||
+      url.startsWith('/_ui/') ||
+      wsRawPath === '/api/sessions' || wsRawPath.startsWith('/api/sessions/') ||
+      wsRawPath === '/api/tls/cert'
+    )) {
       socket.write('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n');
       socket.destroy();
       return;
