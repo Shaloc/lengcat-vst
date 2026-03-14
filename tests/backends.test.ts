@@ -1,7 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { resolveExecutable, backendOrigin, buildCodeServerArgs, loadDotEnv } from '../src/backends';
+import { resolveExecutable, backendOrigin, buildCodeServerArgs, loadDotEnv, buildLeduoPatrolEnv } from '../src/backends';
 import { buildBackendConfig } from '../src/config';
 
 describe('resolveExecutable', () => {
@@ -246,5 +246,81 @@ describe('loadDotEnv', () => {
   it('handles values that contain = signs', () => {
     fs.writeFileSync(path.join(tmpDir, '.env'), 'KEY=a=b=c\n');
     expect(loadDotEnv(tmpDir)).toEqual({ KEY: 'a=b=c' });
+  });
+});
+
+describe('buildLeduoPatrolEnv', () => {
+  const baseConfig = buildBackendConfig({ type: 'leduoPatrol', host: 'localhost', port: 3001 });
+
+  it('sets HOST and PORT from the BackendConfig', () => {
+    const env = buildLeduoPatrolEnv(baseConfig, {}, {});
+    expect(env.HOST).toBe('localhost');
+    expect(env.PORT).toBe('3001');
+  });
+
+  it('overrides HOST/PORT over values in processEnv', () => {
+    const env = buildLeduoPatrolEnv(
+      buildBackendConfig({ type: 'leduoPatrol', host: '0.0.0.0', port: 4000 }),
+      {},
+      { HOST: 'old-host', PORT: '9999' }
+    );
+    expect(env.HOST).toBe('0.0.0.0');
+    expect(env.PORT).toBe('4000');
+  });
+
+  it('spreads processEnv values', () => {
+    const env = buildLeduoPatrolEnv(baseConfig, {}, { SOME_VAR: 'hello' });
+    expect(env.SOME_VAR).toBe('hello');
+  });
+
+  it('overlays dotEnv over processEnv', () => {
+    const env = buildLeduoPatrolEnv(baseConfig, { SOME_VAR: 'from-dot-env' }, { SOME_VAR: 'from-process' });
+    expect(env.SOME_VAR).toBe('from-dot-env');
+  });
+
+  it('preserves LEDUO_PATROL_ACCESS_KEY from dotEnv when config.accessKey is not set', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol' }); // no accessKey
+    const env = buildLeduoPatrolEnv(
+      config,
+      { LEDUO_PATROL_ACCESS_KEY: 'key-from-dot-env' },
+      {}
+    );
+    expect(env.LEDUO_PATROL_ACCESS_KEY).toBe('key-from-dot-env');
+  });
+
+  it('preserves LEDUO_PATROL_ACCESS_KEY from processEnv when not in dotEnv and config.accessKey is not set', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol' }); // no accessKey
+    const env = buildLeduoPatrolEnv(
+      config,
+      {},
+      { LEDUO_PATROL_ACCESS_KEY: 'key-from-process' }
+    );
+    expect(env.LEDUO_PATROL_ACCESS_KEY).toBe('key-from-process');
+  });
+
+  it('config.accessKey overrides dotEnv LEDUO_PATROL_ACCESS_KEY', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol', accessKey: 'config-key' });
+    const env = buildLeduoPatrolEnv(
+      config,
+      { LEDUO_PATROL_ACCESS_KEY: 'dot-env-key' },
+      {}
+    );
+    expect(env.LEDUO_PATROL_ACCESS_KEY).toBe('config-key');
+  });
+
+  it('config.accessKey overrides processEnv LEDUO_PATROL_ACCESS_KEY', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol', accessKey: 'config-key' });
+    const env = buildLeduoPatrolEnv(
+      config,
+      {},
+      { LEDUO_PATROL_ACCESS_KEY: 'process-key' }
+    );
+    expect(env.LEDUO_PATROL_ACCESS_KEY).toBe('config-key');
+  });
+
+  it('leaves LEDUO_PATROL_ACCESS_KEY unset when none of the sources provide it', () => {
+    const config = buildBackendConfig({ type: 'leduoPatrol' }); // no accessKey
+    const env = buildLeduoPatrolEnv(config, {}, {});
+    expect(env.LEDUO_PATROL_ACCESS_KEY).toBeUndefined();
   });
 });

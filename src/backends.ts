@@ -344,6 +344,39 @@ async function waitForBackendReady(
 }
 
 /**
+ * Constructs the environment variables for a leduo-patrol backend process.
+ *
+ * Precedence (highest → lowest):
+ *   1. `config.accessKey` — explicit access key in the BackendConfig
+ *   2. `dotEnv`           — variables loaded from the project's `.env` file
+ *   3. `processEnv`       — inherited parent-process environment
+ *
+ * `HOST` and `PORT` are always taken from `config` so the spawned process
+ * listens on exactly the port the proxy expects to connect to.
+ *
+ * Exported for unit testing.
+ */
+export function buildLeduoPatrolEnv(
+  config: BackendConfig,
+  dotEnv: Record<string, string>,
+  processEnv: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...processEnv,
+    ...dotEnv,
+    HOST: config.host,
+    PORT: String(config.port),
+  };
+  // config.accessKey, when set, takes priority over any value already in env
+  // (from dotEnv or processEnv).  If not set the value loaded from the .env
+  // file (or inherited from the parent process) is preserved as-is.
+  if (config.accessKey) {
+    env.LEDUO_PATROL_ACCESS_KEY = config.accessKey;
+  }
+  return env;
+}
+
+/**
  * Spawns a backend process for the given configuration.
  *
  * For `type === 'vscode'`:
@@ -374,13 +407,29 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
     }
     const { command, args } = resolveExecutable(config);
     const dotEnv = loadDotEnv(projectDir);
-    const env = {
-      ...process.env,
-      ...dotEnv,
-      HOST: config.host,
-      PORT: String(config.port),
-      LEDUO_PATROL_ACCESS_KEY: config.accessKey || process.env.LEDUO_PATROL_ACCESS_KEY,
-    };
+    const env = buildLeduoPatrolEnv(config, dotEnv);
+
+    // ── Diagnostic logging ──────────────────────────────────────────────────
+    // Print the project directory, which .env keys were loaded, and the
+    // key startup variables so operators can verify the environment is
+    // sourced correctly before the process spawns.
+    process.stderr.write(`[lengcat-vst] leduo-patrol dir: ${projectDir}\n`);
+    const dotEnvKeys = Object.keys(dotEnv);
+    if (dotEnvKeys.length > 0) {
+      const pairs = dotEnvKeys.map((k) => `${k}=${dotEnv[k]}`).join(' ');
+      process.stderr.write(
+        `[lengcat-vst] leduo-patrol .env (${dotEnvKeys.length} var${dotEnvKeys.length === 1 ? '' : 's'}): ${pairs}\n`
+      );
+    } else {
+      process.stderr.write(
+        `[lengcat-vst] leduo-patrol: no .env file found at ${path.join(projectDir, '.env')}\n`
+      );
+    }
+    process.stderr.write(
+      `[lengcat-vst] leduo-patrol spawn env: HOST=${env.HOST} PORT=${env.PORT}` +
+      ` LEDUO_PATROL_ACCESS_KEY=${env.LEDUO_PATROL_ACCESS_KEY ? '[set]' : '[not set]'}\n`
+    );
+
     const managed = await trySpawn(command, args, config, projectDir, env);
     await waitForBackendReady(managed);
     return managed;
