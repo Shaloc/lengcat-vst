@@ -434,6 +434,41 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
     await tunnel.close();
   });
 
+  it('GET /api/tls/cert returns 404 when server has no TLS credentials', async () => {
+    const { tunnel, port } = await startUiServer();
+    const r = await httpGet(`http://127.0.0.1:${port}/api/tls/cert`);
+    expect(r.status).toBe(404);
+    const body = JSON.parse(r.body) as { error: string };
+    expect(body.error).toMatch(/No TLS certificate/i);
+    await tunnel.close();
+  });
+
+  it('GET /api/tls/cert returns the PEM certificate when TLS is configured', async () => {
+    const mgr = new SessionManager();
+    const config = mergeConfig({ host: '127.0.0.1', port: 0, auth: false, backends: [{ type: 'vscode' as const, port: 8000 }] });
+    const { loadOrGenerateTls } = await import('../src/tls');
+    const tlsCreds = await loadOrGenerateTls();
+    const tunnel = createTunnelServer(config, mgr, tlsCreds);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const addr = tunnel.httpServer.address() as { port: number };
+
+    // Make an HTTPS request with the self-signed cert as the trusted CA,
+    // validating the TLS connection before checking the certificate endpoint.
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = https.request(
+        { hostname: '127.0.0.1', port: addr.port, path: '/api/tls/cert', ca: tlsCreds.cert },
+        (res) => { res.resume(); resolve(res.statusCode ?? 0); }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+    expect(status).toBe(200);
+    await tunnel.close();
+  });
+
   it('POST /api/sessions persists folder and extensionHostOnly', async () => {
     const { tunnel, port } = await startUiServer();
     const r = await httpRequest(

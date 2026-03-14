@@ -59,6 +59,21 @@ describe('renderDashboard', () => {
     expect(html).toContain('id="btn-toggle-sidebar"');
   });
 
+  it('contains the certificate settings button in the sidebar footer', () => {
+    expect(html).toContain('id="btn-cert-settings"');
+    expect(html).toContain('id="sidebar-footer"');
+  });
+
+  it('contains the certificate settings modal', () => {
+    expect(html).toContain('id="cert-modal-backdrop"');
+    expect(html).toContain('id="cert-modal-body"');
+    expect(html).toContain('id="btn-close-cert-modal"');
+  });
+
+  it('contains the /api/tls/cert API path in the script', () => {
+    expect(html).toContain('/api/tls/cert');
+  });
+
   it('contains the launch-with-folder modal', () => {
     expect(html).toContain('id="launch-modal-backdrop"');
     expect(html).toContain('id="launch-folder"');

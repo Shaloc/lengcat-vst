@@ -106,6 +106,18 @@ export interface TunnelConfig {
    * Only used when `https` is true.  Must be provided together with `tlsCert`.
    */
   tlsKey?: string;
+  /**
+   * Extra hostnames or IP addresses to include in the auto-generated
+   * self-signed TLS certificate's Subject Alternative Names.
+   *
+   * Useful when the proxy is accessed via a custom domain (e.g.
+   * `mydev.company.internal`) rather than `localhost`.  Ignored when
+   * `tlsCert` / `tlsKey` are provided (user-supplied certificates are used
+   * as-is).
+   *
+   * Example: `["mydev.company.internal", "10.0.1.5"]`
+   */
+  tlsDomains?: string[];
 }
 
 /** Default port per backend type. */
