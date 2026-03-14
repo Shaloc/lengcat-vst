@@ -149,6 +149,12 @@ export interface ManagedBackend {
   waitForExit: () => Promise<number | null>;
   /** Terminates the managed process gracefully. */
   stop: () => void;
+  /**
+   * Returns all stderr output collected from the process so far (trimmed).
+   * Useful for surfacing diagnostic information when the process exits
+   * unexpectedly before it becomes ready to accept connections.
+   */
+  getStderr: () => string;
 }
 
 /**
@@ -170,6 +176,20 @@ async function trySpawn(
     detached: false,
     ...(cwd !== undefined ? { cwd } : {}),
   });
+
+  // Collect stderr so that, if the process exits before becoming ready, the
+  // output can be included in the error message to help diagnose why it failed.
+  const stderrChunks: Buffer[] = [];
+  if (proc.stderr) {
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
+  }
+  // Drain stdout to prevent the OS pipe buffer from filling up and blocking
+  // the backend process (stdout is piped but not otherwise consumed).
+  if (proc.stdout) {
+    proc.stdout.resume();
+  }
 
   // Wait for either successful spawn or an immediate error (e.g. ENOENT).
   await new Promise<void>((resolve, reject) => {
@@ -201,6 +221,7 @@ async function trySpawn(
     process: proc,
     config,
     waitForExit: () => exitPromise,
+    getStderr: () => Buffer.concat(stderrChunks).toString().trim(),
     stop() {
       if (!proc.killed) {
         proc.kill('SIGTERM');
@@ -254,8 +275,10 @@ async function waitForBackendReady(
 
   while (Date.now() < deadline) {
     if (processExited) {
+      const stderr = managed.getStderr();
+      const detail = stderr ? `\nProcess output:\n${stderr}` : '';
       throw new Error(
-        `Backend process (${managed.config.type}) exited before becoming ready to accept connections.`
+        `Backend process (${managed.config.type}) exited before becoming ready to accept connections.${detail}`
       );
     }
     try {
@@ -267,8 +290,10 @@ async function waitForBackendReady(
     }
   }
 
+  const stderr = managed.getStderr();
+  const detail = stderr ? `\nProcess output:\n${stderr}` : '';
   throw new Error(
-    `Backend at ${url} did not become ready within ${timeoutMs / 1000}s.`
+    `Backend at ${url} did not become ready within ${timeoutMs / 1000}s.${detail}`
   );
 }
 
