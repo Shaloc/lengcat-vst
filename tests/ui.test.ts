@@ -2,7 +2,7 @@
  * Unit tests for the UI dashboard template (src/ui.ts).
  */
 
-import { renderDashboard } from '../src/ui';
+import { renderDashboard, renderLoginPage } from '../src/ui';
 
 describe('renderDashboard', () => {
   let html: string;
@@ -99,5 +99,87 @@ describe('renderDashboard', () => {
   it('dashboard script references sessionErrorBanner for error display', () => {
     expect(html).toContain('sessionErrorBanner');
     expect(html).toContain('Launch error:');
+  });
+
+  it('contains the light/dark theme toggle button', () => {
+    expect(html).toContain('id="btn-toggle-theme"');
+  });
+
+  it('contains the touch mode toggle button', () => {
+    expect(html).toContain('id="btn-toggle-touch"');
+  });
+
+  it('uses CSS custom properties (variables) for theming', () => {
+    expect(html).toContain('--c-base:');
+    expect(html).toContain('var(--c-base)');
+    expect(html).toContain('var(--c-accent)');
+  });
+
+  it('includes a light theme CSS override block', () => {
+    expect(html).toContain('body.theme-light');
+  });
+
+  it('includes touch mode CSS rules', () => {
+    expect(html).toContain('body.touch-mode');
+  });
+
+  it('dashboard script includes theme toggle logic with localStorage', () => {
+    expect(html).toContain('theme-light');
+    expect(html).toContain('setTheme');
+    expect(html).toContain('btn-toggle-theme');
+  });
+
+  it('dashboard script includes touch mode toggle logic with localStorage', () => {
+    expect(html).toContain('touch-mode');
+    expect(html).toContain('setTouchMode');
+    expect(html).toContain('btn-toggle-touch');
+  });
+
+  it('touch mode is auto-detected on first visit', () => {
+    expect(html).toContain('maxTouchPoints');
+    expect(html).toContain('ontouchstart');
+  });
+});
+
+describe('renderLoginPage', () => {
+  it('returns valid HTML with login form', () => {
+    const html = renderLoginPage();
+    expect(html.trimStart()).toMatch(/^<!DOCTYPE html>/i);
+    expect(html).toContain('action="/_login"');
+    expect(html).toContain('type="password"');
+    expect(html).toContain('name="password"');
+  });
+
+  it('includes a hidden next field defaulting to /', () => {
+    const html = renderLoginPage(false, '/');
+    expect(html).toContain('name="next"');
+    expect(html).toContain('value="/"');
+  });
+
+  it('passes through the next URL into the form', () => {
+    const html = renderLoginPage(false, '/api/sessions');
+    expect(html).toContain('value="/api/sessions"');
+  });
+
+  it('shows error message when error=true', () => {
+    const html = renderLoginPage(true);
+    expect(html).toContain('Incorrect password');
+  });
+
+  it('does not show error message when error=false', () => {
+    const html = renderLoginPage(false);
+    expect(html).not.toContain('Incorrect password');
+  });
+
+  it('sanitises the next URL to prevent HTML injection', () => {
+    const html = renderLoginPage(false, '/"><script>evil()</script>');
+    expect(html).not.toContain('<script>evil()');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('rejects non-relative next URLs (must start with /)', () => {
+    const html = renderLoginPage(false, 'https://evil.example.com');
+    // Falls back to /
+    expect(html).toContain('value="/"');
   });
 });

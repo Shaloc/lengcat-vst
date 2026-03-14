@@ -679,3 +679,158 @@ describe('TunnelServer (proxy header fixups)', () => {
     await new Promise<void>((resolve) => backend.close(() => resolve()));
   });
 });
+
+describe('Dashboard password authentication', () => {
+  /** Starts a tunnel server with dashboardPassword set and returns {server, port, close}. */
+  async function startPasswordProtectedServer(
+    password: string,
+    echoPort: number
+  ): Promise<{ port: number; close: () => Promise<void> }> {
+    const config = mergeConfig({
+      host: '127.0.0.1', port: 0, auth: false,
+      dashboardPassword: password,
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
+    });
+    const { SessionManager } = await import('../src/session');
+    const { _resetCounter } = await import('../src/session');
+    _resetCounter();
+    const mgr = new SessionManager();
+    const tunnel = createTunnelServer(config, mgr);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const { port } = tunnel.httpServer.address() as { port: number };
+    return {
+      port,
+      close: () => tunnel.close(),
+    };
+  }
+
+  /** POST form-data to /_login; returns { status, headers, body }. */
+  function postLogin(
+    port: number,
+    password: string,
+    next = '/'
+  ): Promise<{ status: number; headers: Record<string, string | string[]>; body: string }> {
+    const body = new URLSearchParams({ password, next }).toString();
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1', port,
+          path: '/_login', method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (c: Buffer) => (data += c.toString()));
+          res.on('end', () =>
+            resolve({ status: res.statusCode ?? 0, headers: res.headers as Record<string, string | string[]>, body: data })
+          );
+        }
+      );
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+
+  let echoPort: number;
+  let echoServer: http.Server;
+  beforeAll(async () => {
+    const result = await new Promise<{ server: http.Server; port: number }>((resolve, reject) => {
+      const s = http.createServer((_req, res) => { res.writeHead(200); res.end('echo'); });
+      s.listen(0, '127.0.0.1', () => resolve({ server: s, port: (s.address() as { port: number }).port }));
+      s.once('error', reject);
+    });
+    echoServer = result.server;
+    echoPort = result.port;
+  });
+  afterAll(() => new Promise<void>((r) => echoServer.close(() => r())));
+
+  it('serves the login page at GET /_login', async () => {
+    const { port, close } = await startPasswordProtectedServer('s3cret', echoPort);
+    const result = await httpGet(`http://127.0.0.1:${port}/_login`);
+    expect(result.status).toBe(200);
+    expect(result.body).toContain('action="/_login"');
+    expect(result.body).toContain('type="password"');
+    await close();
+  });
+
+  it('redirects unauthenticated GET / to /_login', async () => {
+    const { port, close } = await startPasswordProtectedServer('s3cret', echoPort);
+    const result = await httpGet(`http://127.0.0.1:${port}/`);
+    expect(result.status).toBe(302);
+    await close();
+  });
+
+  it('returns 401 for unauthenticated non-GET request', async () => {
+    const { port, close } = await startPasswordProtectedServer('s3cret', echoPort);
+    const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request(
+        { hostname: '127.0.0.1', port, path: '/api/sessions', method: 'POST',
+          headers: { 'Content-Type': 'application/json' } },
+        (res) => { let b = ''; res.on('data', (c: Buffer) => (b += c.toString())); res.on('end', () => resolve({ status: res.statusCode ?? 0, body: b })); }
+      );
+      req.on('error', reject);
+      req.end('{}');
+    });
+    expect(result.status).toBe(401);
+    await close();
+  });
+
+  it('POST /_login with wrong password returns login page with error', async () => {
+    const { port, close } = await startPasswordProtectedServer('s3cret', echoPort);
+    const result = await postLogin(port, 'wrong');
+    expect(result.status).toBe(200);
+    expect(result.body).toContain('Incorrect password');
+    await close();
+  });
+
+  it('POST /_login with correct password sets session cookie and redirects', async () => {
+    const { port, close } = await startPasswordProtectedServer('s3cret', echoPort);
+    const result = await postLogin(port, 's3cret', '/');
+    expect(result.status).toBe(302);
+    const cookie = result.headers['set-cookie'];
+    expect(cookie).toBeDefined();
+    const cookieStr = Array.isArray(cookie) ? cookie.join(';') : String(cookie);
+    expect(cookieStr).toContain('lvst_session=');
+    expect(cookieStr).toContain('HttpOnly');
+    await close();
+  });
+
+  it('allows access to dashboard with valid session cookie', async () => {
+    const { port, close } = await startPasswordProtectedServer('s3cret', echoPort);
+    // First log in to get the cookie.
+    const loginResult = await postLogin(port, 's3cret', '/');
+    const setCookieHeader = loginResult.headers['set-cookie'];
+    const cookieStr = Array.isArray(setCookieHeader) ? setCookieHeader[0] : String(setCookieHeader);
+    const cookieValue = cookieStr.split(';')[0]; // e.g. "lvst_session=abc123"
+
+    // Now GET / with the cookie.
+    const dashResult = await httpGet(`http://127.0.0.1:${port}/`, { Cookie: cookieValue });
+    expect(dashResult.status).toBe(200);
+    expect(dashResult.body).toContain('lengcat-vst');
+    await close();
+  });
+
+  it('dashboard is freely accessible when dashboardPassword is not set', async () => {
+    const config = mergeConfig({
+      host: '127.0.0.1', port: 0, auth: false,
+      backends: [{ type: 'vscode', host: '127.0.0.1', port: echoPort, tls: false, tokenSource: 'none' }],
+    });
+    const { SessionManager } = await import('../src/session');
+    const { _resetCounter } = await import('../src/session');
+    _resetCounter();
+    const mgr = new SessionManager();
+    const tunnel = createTunnelServer(config, mgr);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const { port } = tunnel.httpServer.address() as { port: number };
+    const result = await httpGet(`http://127.0.0.1:${port}/`);
+    expect(result.status).toBe(200);
+    expect(result.body).toContain('lengcat-vst');
+    await tunnel.close();
+  });
+});

@@ -78,6 +78,20 @@ describe('resolveExecutable', () => {
     const { args } = resolveExecutable(config);
     expect(args[0]).toBe('serve-web');
   });
+
+  it('includes --connection-grace-time for non-extensionHostOnly serve-web backends', () => {
+    const config = buildBackendConfig({ type: 'vscode' });
+    const { args } = resolveExecutable(config);
+    expect(args).toContain('--connection-grace-time');
+    const idx = args.indexOf('--connection-grace-time');
+    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
+  });
+
+  it('omits --connection-grace-time when extensionHostOnly is true', () => {
+    const config = buildBackendConfig({ type: 'vscode', extensionHostOnly: true });
+    const { args } = resolveExecutable(config);
+    expect(args).not.toContain('--connection-grace-time');
+  });
 });
 
 describe('buildCodeServerArgs', () => {

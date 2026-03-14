@@ -7,9 +7,105 @@
  *   - A "New Session" dialog for creating and launching a new backend.
  *   - Buttons for launching/stopping individual sessions.
  *   - A "Launch" confirmation dialog that lets the user override the folder.
+ *   - Light / dark theme toggle (persisted in localStorage).
+ *   - Touch-screen mode toggle (auto-detected, persisted in localStorage).
  *
  * All interaction with the proxy is done via the REST API at /api/*.
  */
+
+/** Minimal HTML-escaping helper used by renderLoginPage(). */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Renders the login page served at GET /_login.
+ *
+ * @param error  When true, show an "incorrect password" error message.
+ * @param next   The URL to redirect to after successful login (must start with /).
+ */
+export function renderLoginPage(error = false, next = '/'): string {
+  const safeNext = escapeHtml(next.startsWith('/') ? next : '/');
+  const errorHtml = error
+    ? `<div class="login-error" role="alert">Incorrect password — please try again.</div>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>lengcat-vst — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      background: #1e1e2e; color: #cdd6f4;
+    }
+    .login-card {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 12px;
+      padding: 36px 32px 28px;
+      width: 340px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.55);
+    }
+    .login-title {
+      font-size: 17px; font-weight: 700; text-align: center;
+      color: #89b4fa; letter-spacing: 0.06em; margin-bottom: 4px;
+    }
+    .login-subtitle {
+      font-size: 12px; color: #6c7086; text-align: center; margin-bottom: 24px;
+    }
+    .login-error {
+      background: #f38ba8; color: #1e1e2e;
+      padding: 8px 12px; border-radius: 5px;
+      font-size: 12px; font-weight: 500; margin-bottom: 16px;
+    }
+    .form-group { margin-bottom: 16px; }
+    label {
+      display: block; font-size: 11px; color: #89b4fa;
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px;
+    }
+    input[type="password"] {
+      width: 100%; padding: 9px 12px;
+      background: #313244; border: 1px solid #45475a;
+      border-radius: 5px; color: #cdd6f4; font-size: 14px;
+      outline: none;
+    }
+    input[type="password"]:focus { border-color: #89b4fa; }
+    button[type="submit"] {
+      width: 100%; padding: 10px;
+      background: #89b4fa; color: #1e1e2e;
+      border: none; border-radius: 5px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      margin-top: 6px;
+    }
+    button[type="submit"]:hover { background: #b4d0fb; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-title">lengcat-vst</div>
+    <div class="login-subtitle">Session Manager</div>
+    ${errorHtml}
+    <form method="POST" action="/_login">
+      <input type="hidden" name="next" value="${safeNext}" />
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autofocus autocomplete="current-password" />
+      </div>
+      <button type="submit">Sign In</button>
+    </form>
+  </div>
+</body>
+</html>`;
+}
 
 export function renderDashboard(): string {
   return `<!DOCTYPE html>
@@ -19,18 +115,57 @@ export function renderDashboard(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>lengcat-vst — Session Manager</title>
   <style>
+    /* ── CSS custom properties (dark theme defaults — Catppuccin Mocha) ── */
+    :root {
+      --c-base:       #1e1e2e;
+      --c-surface:    #181825;
+      --c-overlay0:   #313244;
+      --c-overlay1:   #45475a;
+      --c-text:       #cdd6f4;
+      --c-subtext0:   #a6adc8;
+      --c-subtext1:   #6c7086;
+      --c-accent:     #89b4fa;
+      --c-accent-h:   #b4d0fb;
+      --c-danger:     #f38ba8;
+      --c-danger-h:   #f7a8ba;
+      --c-green:      #a6e3a1;
+      --c-yellow:     #f9e2af;
+      --c-on-accent:  #1e1e2e;
+      --c-err-bg:     #2d1b1b;
+      --c-err-border: #f38ba8;
+    }
+    /* ── Light theme overrides (Catppuccin Latte) ─────────────────── */
+    body.theme-light {
+      --c-base:       #eff1f5;
+      --c-surface:    #e6e9ef;
+      --c-overlay0:   #ccd0da;
+      --c-overlay1:   #bcc0cc;
+      --c-text:       #4c4f69;
+      --c-subtext0:   #5c5f77;
+      --c-subtext1:   #8c8fa1;
+      --c-accent:     #1e66f5;
+      --c-accent-h:   #04a5e5;
+      --c-danger:     #d20f39;
+      --c-danger-h:   #e64553;
+      --c-green:      #40a02b;
+      --c-yellow:     #df8e1d;
+      --c-on-accent:  #ffffff;
+      --c-err-bg:     #fce5e9;
+      --c-err-border: #d20f39;
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: system-ui, -apple-system, sans-serif;
       display: flex; height: 100vh; overflow: hidden;
-      background: #1e1e2e; color: #cdd6f4;
+      background: var(--c-base); color: var(--c-text);
     }
 
     /* ── Sidebar ────────────────────────────────────────────────── */
     #sidebar {
       width: 270px; min-width: 270px;
-      background: #181825;
-      border-right: 1px solid #313244;
+      background: var(--c-surface);
+      border-right: 1px solid var(--c-overlay0);
       display: flex; flex-direction: column;
       overflow: hidden;
       transition: width 0.18s ease, min-width 0.18s ease;
@@ -41,35 +176,35 @@ export function renderDashboard(): string {
     }
     #sidebar-header {
       padding: 14px 10px 10px;
-      border-bottom: 1px solid #313244;
+      border-bottom: 1px solid var(--c-overlay0);
       display: flex; align-items: center; justify-content: space-between;
       gap: 6px; flex-shrink: 0;
     }
     #sidebar-header h1 {
       font-size: 13px; font-weight: 600; letter-spacing: 0.08em;
-      text-transform: uppercase; color: #89b4fa;
+      text-transform: uppercase; color: var(--c-accent);
       overflow: hidden; transition: opacity 0.15s;
     }
     #sidebar.collapsed #sidebar-header h1 { opacity: 0; pointer-events: none; width: 0; }
     #sidebar.collapsed #btn-new-session { display: none; }
 
     #btn-new-session {
-      background: #89b4fa; color: #1e1e2e;
+      background: var(--c-accent); color: var(--c-on-accent);
       border: none; border-radius: 4px;
       width: 24px; height: 24px;
       font-size: 18px; font-weight: 600;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       line-height: 1; flex-shrink: 0;
     }
-    #btn-new-session:hover { background: #b4d0fb; }
+    #btn-new-session:hover { background: var(--c-accent-h); }
 
     #btn-toggle-sidebar {
       background: none; border: none; cursor: pointer;
-      color: #6c7086; padding: 2px 4px; border-radius: 4px;
+      color: var(--c-subtext1); padding: 2px 4px; border-radius: 4px;
       font-size: 14px; line-height: 1; flex-shrink: 0;
       transition: color 0.1s;
     }
-    #btn-toggle-sidebar:hover { color: #cdd6f4; background: #313244; }
+    #btn-toggle-sidebar:hover { color: var(--c-text); background: var(--c-overlay0); }
 
     #session-list { flex: 1; overflow-y: auto; padding: 8px; }
     #sidebar.collapsed #session-list { padding: 8px 4px; }
@@ -77,17 +212,17 @@ export function renderDashboard(): string {
 
     #sidebar-footer {
       padding: 8px;
-      border-top: 1px solid #313244;
+      border-top: 1px solid var(--c-overlay0);
       flex-shrink: 0;
     }
     #btn-cert-settings {
       width: 100%; padding: 7px 10px;
-      background: none; border: 1px solid #45475a; border-radius: 4px;
-      color: #6c7086; font-size: 12px; cursor: pointer;
+      background: none; border: 1px solid var(--c-overlay1); border-radius: 4px;
+      color: var(--c-subtext1); font-size: 12px; cursor: pointer;
       text-align: left; display: flex; align-items: center; gap: 6px;
       transition: background 0.1s, color 0.1s;
     }
-    #btn-cert-settings:hover { background: #313244; color: #cdd6f4; }
+    #btn-cert-settings:hover { background: var(--c-overlay0); color: var(--c-text); }
     #sidebar.collapsed #btn-cert-settings {
       width: 32px; height: 32px; padding: 0;
       justify-content: center; font-size: 16px;
@@ -101,16 +236,16 @@ export function renderDashboard(): string {
       display: flex; flex-direction: column; gap: 3px;
       transition: background 0.1s;
     }
-    .session-item:hover { background: #313244; }
-    .session-item.active { border-color: #89b4fa; background: #313244; }
+    .session-item:hover { background: var(--c-overlay0); }
+    .session-item.active { border-color: var(--c-accent); background: var(--c-overlay0); }
     .session-item-name {
       font-size: 13px; font-weight: 500;
       display: flex; align-items: center; gap: 6px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
     }
-    .session-item-meta { font-size: 11px; color: #6c7086; }
-    .session-item-folder { font-size: 11px; color: #a6e3a1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .session-item-error { font-size: 11px; color: #f38ba8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-item-meta { font-size: 11px; color: var(--c-subtext1); }
+    .session-item-folder { font-size: 11px; color: var(--c-green); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-item-error { font-size: 11px; color: var(--c-danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Collapsed: only show the status dot, centred */
     #sidebar.collapsed .session-item {
@@ -125,16 +260,16 @@ export function renderDashboard(): string {
       display: inline-block; width: 8px; height: 8px;
       border-radius: 50%; flex-shrink: 0;
     }
-    .dot-running  { background: #a6e3a1; }
-    .dot-stopped  { background: #6c7086; }
-    .dot-starting { background: #f9e2af; animation: pulse 1s infinite; }
-    .dot-error    { background: #f38ba8; }
+    .dot-running  { background: var(--c-green); }
+    .dot-stopped  { background: var(--c-subtext1); }
+    .dot-starting { background: var(--c-yellow); animation: pulse 1s infinite; }
+    .dot-error    { background: var(--c-danger); }
     @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
 
     .badge-exthost {
       font-size: 9px; font-weight: 600; letter-spacing: 0.04em;
-      background: #313244; color: #89b4fa;
-      border: 1px solid #45475a; border-radius: 3px;
+      background: var(--c-overlay0); color: var(--c-accent);
+      border: 1px solid var(--c-overlay1); border-radius: 3px;
       padding: 1px 4px; flex-shrink: 0;
     }
 
@@ -143,21 +278,26 @@ export function renderDashboard(): string {
 
     #toolbar {
       padding: 7px 10px;
-      background: #181825; border-bottom: 1px solid #313244;
+      background: var(--c-surface); border-bottom: 1px solid var(--c-overlay0);
       display: flex; align-items: center; gap: 8px; flex-shrink: 0;
     }
-    #toolbar-title { font-size: 13px; flex: 1; color: #a6adc8; }
+    #toolbar-title { font-size: 13px; flex: 1; color: var(--c-subtext0); }
 
     .btn {
       padding: 5px 13px; border-radius: 4px; border: none;
       cursor: pointer; font-size: 12px; font-weight: 500;
     }
-    .btn-primary  { background: #89b4fa; color: #1e1e2e; }
-    .btn-primary:hover  { background: #b4d0fb; }
-    .btn-danger   { background: #f38ba8; color: #1e1e2e; }
-    .btn-danger:hover   { background: #f7a8ba; }
-    .btn-secondary { background: #313244; color: #cdd6f4; }
-    .btn-secondary:hover { background: #45475a; }
+    .btn-primary   { background: var(--c-accent);   color: var(--c-on-accent); }
+    .btn-primary:hover   { background: var(--c-accent-h); }
+    .btn-danger    { background: var(--c-danger);   color: var(--c-on-accent); }
+    .btn-danger:hover    { background: var(--c-danger-h); }
+    .btn-secondary { background: var(--c-overlay0); color: var(--c-text); }
+    .btn-secondary:hover { background: var(--c-overlay1); }
+
+    /* Icon-only toolbar buttons (theme / touch toggles) */
+    .btn-icon {
+      padding: 5px 8px; font-size: 15px; line-height: 1;
+    }
 
     #content-area { flex: 1; position: relative; overflow: hidden; }
 
@@ -175,9 +315,9 @@ export function renderDashboard(): string {
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      gap: 14px; color: #6c7086;
+      gap: 14px; color: var(--c-subtext1);
     }
-    #welcome h2 { font-size: 20px; color: #cdd6f4; font-weight: 500; }
+    #welcome h2 { font-size: 20px; color: var(--c-text); font-weight: 500; }
     #welcome p  { font-size: 13px; text-align: center; max-width: 320px; line-height: 1.6; }
 
     /* ── Modal ──────────────────────────────────────────────────── */
@@ -189,24 +329,24 @@ export function renderDashboard(): string {
     }
     .modal-backdrop.hidden { display: none; }
     .modal {
-      background: #181825; border: 1px solid #313244;
+      background: var(--c-surface); border: 1px solid var(--c-overlay0);
       border-radius: 10px; padding: 24px; width: 400px;
       box-shadow: 0 8px 40px rgba(0,0,0,0.6);
     }
     .modal h2 { font-size: 15px; font-weight: 600; margin-bottom: 18px; }
     .form-group { margin-bottom: 14px; }
-    label { display: block; font-size: 11px; color: #89b4fa; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+    label { display: block; font-size: 11px; color: var(--c-accent); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
     select, input[type=text], input[type=number] {
       width: 100%; padding: 8px 10px;
-      background: #313244; border: 1px solid #45475a;
-      border-radius: 5px; color: #cdd6f4; font-size: 13px;
+      background: var(--c-overlay0); border: 1px solid var(--c-overlay1);
+      border-radius: 5px; color: var(--c-text); font-size: 13px;
     }
-    select:focus, input:focus { outline: none; border-color: #89b4fa; }
+    select:focus, input:focus { outline: none; border-color: var(--c-accent); }
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
-    .form-hint { font-size: 11px; color: #6c7086; margin-top: 3px; }
+    .form-hint { font-size: 11px; color: var(--c-subtext1); margin-top: 3px; }
 
     #error-banner {
-      padding: 9px 14px; background: #f38ba8; color: #1e1e2e;
+      padding: 9px 14px; background: var(--c-danger); color: var(--c-on-accent);
       font-size: 12px; font-weight: 500; display: none;
     }
 
@@ -215,15 +355,35 @@ export function renderDashboard(): string {
        the transient error-banner above. */
     #session-error-banner {
       padding: 8px 14px;
-      background: #2d1b1b;
-      border-bottom: 1px solid #f38ba8;
-      color: #f38ba8;
+      background: var(--c-err-bg);
+      border-bottom: 1px solid var(--c-err-border);
+      color: var(--c-danger);
       font-size: 12px;
       font-family: monospace;
       white-space: pre-wrap;
       word-break: break-all;
       display: none;
     }
+
+    /* ── Touch mode ──────────────────────────────────────────────── */
+    /* Applied via body.touch-mode; increases tap targets and font sizes for
+       finger-driven interaction on tablets / touch-screen laptops. */
+    body.touch-mode .session-item       { padding: 13px 12px; margin-bottom: 6px; }
+    body.touch-mode .session-item-name  { font-size: 14px; }
+    body.touch-mode .session-item-meta  { font-size: 12px; }
+    body.touch-mode #btn-new-session    { width: 32px; height: 32px; font-size: 20px; }
+    body.touch-mode #btn-toggle-sidebar { font-size: 18px; padding: 4px 7px; }
+    body.touch-mode #btn-cert-settings  { padding: 10px 12px; font-size: 13px; }
+    body.touch-mode .btn                { padding: 9px 18px; font-size: 13px; }
+    body.touch-mode .btn-icon           { padding: 9px 12px; }
+    body.touch-mode #toolbar            { padding: 9px 12px; gap: 10px; }
+    body.touch-mode select,
+    body.touch-mode input[type=text],
+    body.touch-mode input[type=number]  { padding: 11px 12px; font-size: 14px; }
+    body.touch-mode label               { font-size: 12px; }
+    body.touch-mode .form-hint          { font-size: 12px; }
+    body.touch-mode .modal              { padding: 28px 24px; }
+    body.touch-mode .dot                { width: 11px; height: 11px; }
   </style>
 </head>
 <body>
@@ -236,7 +396,7 @@ export function renderDashboard(): string {
     <button id="btn-new-session" title="New session">+</button>
   </div>
   <div id="session-list">
-    <div id="no-sessions" style="padding:12px 8px;font-size:12px;color:#6c7086;">
+    <div id="no-sessions" style="padding:12px 8px;font-size:12px;color:var(--c-subtext1);">
       No sessions yet. Click + to add one.
     </div>
   </div>
@@ -254,6 +414,8 @@ export function renderDashboard(): string {
     <button class="btn btn-danger"   id="btn-stop"   style="display:none">Stop</button>
     <button class="btn btn-secondary" id="btn-open-new-tab" style="display:none" title="Open in new tab">↗ New tab</button>
     <button class="btn btn-danger"   id="btn-remove" style="display:none">Remove</button>
+    <button class="btn btn-secondary btn-icon" id="btn-toggle-theme"  title="Switch to light mode">☀️</button>
+    <button class="btn btn-secondary btn-icon" id="btn-toggle-touch"  title="Enable touch mode">👆</button>
   </div>
   <div id="session-error-banner"></div>
   <div id="content-area">
@@ -772,6 +934,43 @@ export function renderDashboard(): string {
   // Restore persisted state
   try {
     if (localStorage.getItem('sidebar-collapsed') === 'true') setSidebarCollapsed(true);
+  } catch (_) {}
+
+  // ── Light / dark theme toggle ─────────────────────────────────
+  const btnToggleTheme = document.getElementById('btn-toggle-theme');
+  function setTheme(light) {
+    document.body.classList.toggle('theme-light', light);
+    btnToggleTheme.textContent = light ? '🌙' : '☀️';
+    btnToggleTheme.title = light ? 'Switch to dark mode' : 'Switch to light mode';
+    try { localStorage.setItem('theme-light', String(light)); } catch (_) {}
+  }
+  btnToggleTheme.addEventListener('click', () => {
+    setTheme(!document.body.classList.contains('theme-light'));
+  });
+  try {
+    if (localStorage.getItem('theme-light') === 'true') setTheme(true);
+  } catch (_) {}
+
+  // ── Touch mode toggle ─────────────────────────────────────────
+  const btnToggleTouch = document.getElementById('btn-toggle-touch');
+  function setTouchMode(on) {
+    document.body.classList.toggle('touch-mode', on);
+    btnToggleTouch.title = on ? 'Disable touch mode' : 'Enable touch mode';
+    btnToggleTouch.style.opacity = on ? '1' : '0.6';
+    try { localStorage.setItem('touch-mode', String(on)); } catch (_) {}
+  }
+  btnToggleTouch.addEventListener('click', () => {
+    setTouchMode(!document.body.classList.contains('touch-mode'));
+  });
+  // Auto-detect touch-screen on first visit; respect saved preference otherwise.
+  try {
+    const saved = localStorage.getItem('touch-mode');
+    if (saved !== null) {
+      setTouchMode(saved === 'true');
+    } else {
+      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      if (hasTouch) setTouchMode(true);
+    }
   } catch (_) {}
 
   // ── Init ─────────────────────────────────────────────────────

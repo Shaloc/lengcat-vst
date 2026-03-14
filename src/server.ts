@@ -15,12 +15,13 @@
 import * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
+import * as crypto from 'crypto';
 import httpProxy from 'http-proxy';
 import { BackendConfig, BackendType, TunnelConfig, buildBackendConfig } from './config';
 import { backendOrigin } from './backends';
 import { createAuthMiddleware } from './auth';
 import { SessionManager } from './session';
-import { renderDashboard } from './ui';
+import { renderDashboard, renderLoginPage } from './ui';
 import type { TlsCredentials } from './tls';
 
 export interface TunnelServer {
@@ -32,6 +33,104 @@ export interface TunnelServer {
   close(): Promise<void>;
   /** True when the server is serving over TLS (HTTPS / WSS). */
   isHttps: boolean;
+}
+
+// ── Dashboard-password cookie helpers ────────────────────────────────────────
+const SESSION_COOKIE_NAME = 'lvst_session';
+
+/**
+ * Derives the expected session-cookie value from the given password.
+ * Uses HMAC-SHA256 so the password is never stored in the cookie itself.
+ */
+function computeSessionToken(password: string): string {
+  return crypto.createHmac('sha256', password).update('lvst-session-v1').digest('hex');
+}
+
+/** Extracts the value of a named cookie from the Cookie request header. */
+function extractCookie(req: http.IncomingMessage, name: string): string | undefined {
+  const header = req.headers['cookie'];
+  if (!header) return undefined;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      return part.slice(eq + 1).trim();
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns true when the request carries a valid session cookie for
+ * the given dashboard password.
+ */
+function isSessionAuthenticated(req: http.IncomingMessage, password: string): boolean {
+  const cookie = extractCookie(req, SESSION_COOKIE_NAME);
+  if (!cookie) return false;
+  const expected = computeSessionToken(password);
+  try {
+    const a = Buffer.from(cookie, 'hex');
+    const b = Buffer.from(expected, 'hex');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Handles GET and POST /_login.
+ *
+ * GET  : serves the login page HTML.
+ * POST : validates the submitted password; on success sets a session cookie
+ *        and redirects to the `next` URL (or `/`); on failure re-renders the
+ *        login page with an error message.
+ */
+async function handleLoginRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: TunnelConfig
+): Promise<void> {
+  if (req.method === 'POST') {
+    let password = '';
+    let next = '/';
+    try {
+      const raw = await readBody(req);
+      const params = new URLSearchParams(raw);
+      password = params.get('password') ?? '';
+      const rawNext = params.get('next') ?? '/';
+      // Only allow same-origin redirects (must start with /).
+      next = rawNext.startsWith('/') ? rawNext : '/';
+    } catch {
+      // Fall through with empty password → will fail the check below.
+    }
+
+    if (password === config.dashboardPassword) {
+      const token = computeSessionToken(config.dashboardPassword!);
+      const flags = [
+        `${SESSION_COOKIE_NAME}=${token}`,
+        'Path=/',
+        'HttpOnly',
+        'SameSite=Lax',
+      ];
+      if (config.https) flags.push('Secure');
+      res.writeHead(302, {
+        'Set-Cookie': flags.join('; '),
+        'Location': next,
+      });
+      res.end();
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderLoginPage(true, next));
+    }
+    return;
+  }
+
+  // GET /_login
+  const urlObj = new URL(req.url ?? '/_login', 'http://localhost');
+  const next = urlObj.searchParams.get('next') ?? '/';
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(renderLoginPage(false, next));
 }
 
 /**
@@ -395,6 +494,29 @@ export function createTunnelServer(
   // ── Request handler (shared between HTTP and HTTPS) ─────────────────────
   const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const url = req.url ?? '/';
+    const rawPath = url.split('?')[0];
+
+    // ── Dashboard-password gate ──────────────────────────────────────────────
+    // The /_login route is always reachable so users can authenticate.
+    // All other routes require a valid session cookie when a dashboard
+    // password has been configured.
+    if (config.dashboardPassword) {
+      if (rawPath === '/_login') {
+        void handleLoginRequest(req, res, config);
+        return;
+      }
+      if (!isSessionAuthenticated(req, config.dashboardPassword)) {
+        if (req.method === 'GET' || req.method === 'HEAD') {
+          const next = encodeURIComponent(url);
+          res.writeHead(302, { Location: `/_login?next=${next}` });
+          res.end();
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized. Please log in at /_login.' }));
+        }
+        return;
+      }
+    }
 
     // ── Dashboard / session-management API ──
     // When a SessionManager is active, the root URL serves the dashboard and
@@ -465,6 +587,15 @@ export function createTunnelServer(
   // upgrade event fires).
   server.on('upgrade', (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
     const url = req.url ?? '/';
+
+    // ── Dashboard-password gate for WebSocket upgrades ───────────────────
+    // Browsers include cookies in WebSocket upgrade requests (same-origin),
+    // so we can reuse the same cookie-based authentication here.
+    if (config.dashboardPassword && !isSessionAuthenticated(req, config.dashboardPassword)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n');
+      socket.destroy();
+      return;
+    }
 
     // Block WS upgrades to UI/API paths (they are not proxied).
     if (sessionMgr && (url === '/' || url.startsWith('/_ui/') || url.startsWith('/api/'))) {

@@ -72,6 +72,16 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     args.push('--without-connection-token');
   }
 
+  // Prevent VS Code from shutting down when the last browser client
+  // disconnects.  By default VS Code's serve-web exits after a grace period
+  // (--connection-grace-time) once all tabs are closed, which would kill
+  // background tasks such as AI agents and running terminals.  Setting this
+  // to a very large value (~115 days) effectively keeps the server alive
+  // until it is explicitly stopped via the dashboard.
+  if (!config.extensionHostOnly) {
+    args.push('--connection-grace-time', '9999999');
+  }
+
   return { command, args };
 }
 
