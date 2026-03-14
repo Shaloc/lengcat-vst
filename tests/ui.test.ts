@@ -58,6 +58,11 @@ describe('renderDashboard', () => {
     expect(html).toContain("type === 'leduoPatrol' ? 'leduo-patrol' : type");
   });
 
+  it('appends leduo access key to the iframe URL query string', () => {
+    expect(html).toContain("if (s.type === 'leduoPatrol' && s.accessKey)");
+    expect(html).toContain("params.set('key', s.accessKey)");
+  });
+
   it('contains the toolbar action buttons', () => {
     expect(html).toContain('id="btn-launch"');
     expect(html).toContain('id="btn-stop"');

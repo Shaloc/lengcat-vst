@@ -348,6 +348,7 @@ export async function startBackend(config: BackendConfig): Promise<ManagedBacken
       ...process.env,
       HOST: config.host,
       PORT: String(config.port),
+      LEDUO_PATROL_ACCESS_KEY: config.accessKey || process.env.LEDUO_PATROL_ACCESS_KEY,
     };
     const managed = await trySpawn(command, args, config, projectDir, env);
     await waitForBackendReady(managed);

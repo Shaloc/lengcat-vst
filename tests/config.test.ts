@@ -65,6 +65,11 @@ describe('buildBackendConfig', () => {
     expect(bc.tls).toBe(false);
     expect(bc.tokenSource).toBe('none');
   });
+
+  it('stores accessKey when provided', () => {
+    const bc = buildBackendConfig({ type: 'leduoPatrol', accessKey: 'abc123' });
+    expect(bc.accessKey).toBe('abc123');
+  });
 });
 
 describe('mergeConfig', () => {

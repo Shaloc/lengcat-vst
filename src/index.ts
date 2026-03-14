@@ -28,6 +28,7 @@
  */
 
 import { Command } from 'commander';
+import { randomBytes } from 'crypto';
 import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfig, buildBackendConfig } from './config';
 import { createTunnelServer } from './server';
 import { SessionManager } from './session';
@@ -43,6 +44,7 @@ import {
 
 const program = new Command();
 const LEDUO_SESSION_PATH_PREFIX = '/_leduo-patrol';
+const LEDUO_ACCESS_KEY_BYTES = 24;
 
 program
   .name('lengcat-vst')
@@ -98,6 +100,10 @@ program
   .option(
     '--launch',
     'automatically start each configured backend VS Code/VSCodium server'
+  )
+  .option(
+    '--leduo-access-key <key>',
+    'fixed access key for leduo-patrol (also appended to the leduo iframe URL)'
   );
 
 // Only parse proxy options when not running the install subcommand.
@@ -123,6 +129,7 @@ const opts = process.argv[2] !== 'install'
       tlsDomains?: string;
       dashboardPassword?: string;
       launch?: boolean;
+      leduoAccessKey?: string;
     }>()
   : ({} as {
       config?: string;
@@ -142,6 +149,7 @@ const opts = process.argv[2] !== 'install'
       tlsDomains?: string;
       dashboardPassword?: string;
       launch?: boolean;
+      leduoAccessKey?: string;
     });
 
 async function main(): Promise<void> {
@@ -181,6 +189,10 @@ async function main(): Promise<void> {
 
   // Build a session manager so the dashboard (/_ui) is always available.
   const sessionMgr = new SessionManager();
+  const leduoAccessKey =
+    opts.leduoAccessKey ??
+    process.env.LEDUO_PATROL_ACCESS_KEY ??
+    randomBytes(LEDUO_ACCESS_KEY_BYTES).toString('hex');
   const leduoPort = (() => {
     const parsed = parseInt(process.env.LEDUO_PATROL_PORT ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 3001;
@@ -193,6 +205,7 @@ async function main(): Promise<void> {
     tls: false,
     tokenSource: 'none',
     pathPrefix: LEDUO_SESSION_PATH_PREFIX,
+    accessKey: leduoAccessKey,
   }));
   for (const backend of config.backends) {
     sessionMgr.register(backend);

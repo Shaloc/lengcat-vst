@@ -154,6 +154,13 @@ describe('SessionManager.toJSON', () => {
     expect(info).not.toHaveProperty('startedAt');
     expect(info).not.toHaveProperty('errorMessage');
   });
+
+  it('includes accessKey for leduoPatrol sessions', () => {
+    const mgr = new SessionManager();
+    mgr.register(buildBackendConfig({ type: 'leduoPatrol', accessKey: 'fixed-key' }));
+    const [info] = mgr.toJSON();
+    expect(info.accessKey).toBe('fixed-key');
+  });
 });
 
 // ── launch (error path only — no real process spawned) ───────────────────────

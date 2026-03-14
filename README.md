@@ -46,6 +46,18 @@ If your clone lives elsewhere, set:
 LEDUO_PATROL_DIR=/absolute/path/to/leduo-patrol lengcat-vst --backend-port 8000 --launch
 ```
 
+To use a fixed leduo-patrol access key (so the dashboard iframe opens directly
+without manually pasting the key), set either:
+
+```bash
+LEDUO_PATROL_ACCESS_KEY=your-fixed-key lengcat-vst --backend-port 8000 --launch
+# or
+lengcat-vst --backend-port 8000 --launch --leduo-access-key your-fixed-key
+```
+
+If neither is set, `lengcat-vst` generates a per-run key and passes it to
+leduo-patrol automatically.
+
 > **First-time browser warning**: because the certificate is self-signed, your browser will show a security warning. Click *Advanced → Proceed* (Chrome/Edge) or *Accept the Risk* (Firefox) once. After that, the proxy works like any HTTPS site — and VS Code extensions get the secure context they need.
 
 Or, start the backend yourself and disable HTTPS if you prefer plain HTTP:
@@ -198,6 +210,7 @@ Options:
   --no-https                 Disable HTTPS (plain HTTP)
   --tls-cert <path>          Path to TLS certificate PEM    (auto-generated if absent)
   --tls-key <path>           Path to TLS private-key PEM   (auto-generated if absent)
+  --leduo-access-key <key>   Fixed access key for leduo-patrol
   --launch                   Auto-start each configured backend on startup
 ```
 
