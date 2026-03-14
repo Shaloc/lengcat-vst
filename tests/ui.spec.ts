@@ -12,6 +12,7 @@
 import { test, expect } from '@playwright/test';
 import * as http from 'http';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { createTunnelServer } from '../src/server';
 import { mergeConfig, buildBackendConfig } from '../src/config';
@@ -521,6 +522,105 @@ test.describe('Dashboard screenshots', () => {
     }, { timeout: 5000 });
     await page.screenshot({
       path: path.join(screenshotDir(), 'dashboard-new-session-dialog.png'),
+      fullPage: false,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — session launch failure includes process output in the error message
+// ---------------------------------------------------------------------------
+
+test.describe('Session launch failure shows process output', () => {
+  let tunnel: TunnelServer;
+  let proxyPort: number;
+  let sessionMgr: SessionManager;
+  let scriptPath: string;
+
+  test.beforeAll(async () => {
+    // Create a small shell script that writes a diagnostic to stderr and exits
+    // with a non-zero code, simulating a backend that fails to start.
+    scriptPath = path.join(os.tmpdir(), `lengcat-test-fail-${process.pid}.sh`);
+    fs.writeFileSync(
+      scriptPath,
+      '#!/bin/sh\necho "error: EADDRINUSE: address already in use :::9977" >&2\nexit 1\n',
+      { mode: 0o755 }
+    );
+
+    sessionMgr = new SessionManager();
+
+    const config = mergeConfig({
+      host: '127.0.0.1',
+      port: 0,
+      auth: false,
+      backends: [],
+    });
+
+    const localTunnel = createTunnelServer(config, sessionMgr);
+    await new Promise<void>((resolve, reject) => {
+      localTunnel.httpServer.once('error', reject);
+      localTunnel.httpServer.listen(0, '127.0.0.1', () => {
+        localTunnel.httpServer.off('error', reject);
+        resolve();
+      });
+    });
+    const { port } = localTunnel.httpServer.address() as { port: number };
+    tunnel = localTunnel;
+    proxyPort = port;
+  });
+
+  test.afterAll(async () => {
+    await tunnel.close();
+    try { fs.unlinkSync(scriptPath); } catch { /* temp file may not exist if test setup failed early */ }
+  });
+
+  /** Returns the absolute path to the test-results directory, creating it if necessary. */
+  function screenshotDir(): string {
+    const dir = path.join(__dirname, '..', 'test-results');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  test('error banner shows process stderr output when launch fails', async ({ page }) => {
+    // Create and launch a custom session via the API using the fail script.
+    // The launch is synchronous server-side; by the time the API responds the
+    // session will already be in 'error' state.
+    const createRes = await page.request.post(
+      `http://127.0.0.1:${proxyPort}/api/sessions`,
+      {
+        data: {
+          type: 'custom',
+          executable: scriptPath,
+          port: 9977,
+          extensionHostOnly: true, // omit the 'serve-web' subcommand so the script receives only --host/--port flags and can exit cleanly with its own stderr message
+          launch: true,
+        },
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    expect(createRes.ok()).toBeTruthy();
+    const sessionInfo = await createRes.json() as { id: string; status: string; errorMessage?: string };
+
+    // The session must be in error state and carry process output.
+    expect(sessionInfo.status).toBe('error');
+    expect(sessionInfo.errorMessage).toBeDefined();
+    expect(sessionInfo.errorMessage).toContain('exited before becoming ready');
+    // The collected stderr from the fail script must appear in the error message.
+    expect(sessionInfo.errorMessage).toContain('EADDRINUSE');
+
+    // Navigate to the dashboard and click the failed session.
+    await page.goto(`http://127.0.0.1:${proxyPort}/`, { waitUntil: 'networkidle' });
+    await page.locator('.session-item').first().click();
+
+    // The session-error-banner must become visible and contain the process output.
+    const banner = page.locator('#session-error-banner');
+    await expect(banner).toBeVisible({ timeout: 5_000 });
+    await expect(banner).toContainText('EADDRINUSE');
+
+    // Screenshot: dashboard showing the improved error with process output.
+    await page.screenshot({
+      path: path.join(screenshotDir(), 'dashboard-launch-error-with-output.png'),
       fullPage: false,
     });
   });
