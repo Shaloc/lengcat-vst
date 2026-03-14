@@ -44,6 +44,7 @@ import {
 
 const program = new Command();
 const LEDUO_SESSION_PATH_PREFIX = '/_leduo-patrol';
+const LEDUO_ACCESS_KEY_BYTES = 24;
 
 program
   .name('lengcat-vst')
@@ -191,7 +192,7 @@ async function main(): Promise<void> {
   const leduoAccessKey =
     opts.leduoAccessKey ??
     process.env.LEDUO_PATROL_ACCESS_KEY ??
-    randomBytes(24).toString('hex');
+    randomBytes(LEDUO_ACCESS_KEY_BYTES).toString('hex');
   const leduoPort = (() => {
     const parsed = parseInt(process.env.LEDUO_PATROL_PORT ?? '', 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 3001;
