@@ -8,6 +8,7 @@ Powered by [code-server](https://github.com/coder/code-server): if no VS Code bi
 
 - **HTTPS by default** — the proxy auto-generates a self-signed TLS certificate and serves over `https://` + `wss://` so the browser grants a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts) (required by clipboard, camera, and many VS Code extensions). Disable with `--no-https` if needed.
 - **Built-in session dashboard** — opening `https://127.0.0.1:3000` shows a full session manager UI with a collapsible sidebar; no extra tool required.
+- **Built-in leduo-patrol session** — on startup, lengcat-vst also tries to launch one [dream-north/leduo-patrol](https://github.com/dream-north/leduo-patrol) instance and pins it to the top of the dashboard session list (`/_leduo-patrol`).
 - **Launch with folder** — the *Launch* button opens a dialog where you can type the workspace folder to open in VS Code before the session starts.
 - **Auto-launch backends** — pass `--launch` and the proxy starts the VS Code server for you; if the binary isn't on `PATH` it automatically falls back to the `~/.vscode-server` home-directory installation, and if that's not found either it **auto-downloads** the VS Code server from the [code-server](https://github.com/coder/code-server) npm package (~49 MB, cached in `$TMPDIR/lengcat-vst-vscode-server`) so you never have to install it manually.
 - **Extension-host-only mode** — connect to a VS Code server that was started by Remote SSH (or any server that doesn't need the `serve-web` subcommand) by ticking the *Extension-host only* checkbox or passing `--extension-host-only`.
@@ -31,6 +32,18 @@ npm install -g lengcat-vst
 lengcat-vst --backend-port 8000 --launch
 
 # Open https://127.0.0.1:3000 — accept the self-signed cert warning once
+```
+
+By default, the bundled leduo-patrol session is started from:
+
+```bash
+~/.lengcat-vst/leduo-patrol
+```
+
+If your clone lives elsewhere, set:
+
+```bash
+LEDUO_PATROL_DIR=/absolute/path/to/leduo-patrol lengcat-vst --backend-port 8000 --launch
 ```
 
 > **First-time browser warning**: because the certificate is self-signed, your browser will show a security warning. Click *Advanced → Proceed* (Chrome/Edge) or *Accept the Risk* (Firefox) once. After that, the proxy works like any HTTPS site — and VS Code extensions get the secure context they need.

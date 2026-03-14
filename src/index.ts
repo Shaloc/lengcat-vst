@@ -28,7 +28,7 @@
  */
 
 import { Command } from 'commander';
-import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfig } from './config';
+import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfig, buildBackendConfig } from './config';
 import { createTunnelServer } from './server';
 import { SessionManager } from './session';
 import { loadOrGenerateTls, tlsCertCachePath } from './tls';
@@ -42,6 +42,7 @@ import {
 } from './download';
 
 const program = new Command();
+const LEDUO_SESSION_PATH_PREFIX = '/_leduo-patrol';
 
 program
   .name('lengcat-vst')
@@ -180,6 +181,19 @@ async function main(): Promise<void> {
 
   // Build a session manager so the dashboard (/_ui) is always available.
   const sessionMgr = new SessionManager();
+  const leduoPort = (() => {
+    const parsed = parseInt(process.env.LEDUO_PATROL_PORT ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 3001;
+  })();
+  const leduoHost = process.env.LEDUO_PATROL_HOST ?? 'localhost';
+  const leduoSession = sessionMgr.register(buildBackendConfig({
+    type: 'leduoPatrol',
+    host: leduoHost,
+    port: leduoPort,
+    tls: false,
+    tokenSource: 'none',
+    pathPrefix: LEDUO_SESSION_PATH_PREFIX,
+  }));
   for (const backend of config.backends) {
     sessionMgr.register(backend);
   }
@@ -199,8 +213,15 @@ async function main(): Promise<void> {
     }
     console.log(sep);
   }
+  try {
+    await sessionMgr.launch(leduoSession.id);
+    console.log(`  Launched leduo-patrol (port ${leduoSession.port}, pid ${leduoSession.pid ?? '?'})`);
+  } catch (err) {
+    console.error(`  Failed to launch leduo-patrol: ${(err as Error).message}`);
+  }
   if (opts.launch) {
     for (const session of sessionMgr.list()) {
+      if (session.id === leduoSession.id) continue;
       try {
         await sessionMgr.launch(session.id);
         console.log(

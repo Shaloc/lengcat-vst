@@ -57,6 +57,14 @@ describe('buildBackendConfig', () => {
     const bc = buildBackendConfig({ type: 'vscode' });
     expect(bc.pathPrefix).toBeUndefined();
   });
+
+  it('fills defaults for leduoPatrol', () => {
+    const bc = buildBackendConfig({ type: 'leduoPatrol' });
+    expect(bc.host).toBe('localhost');
+    expect(bc.port).toBe(3001);
+    expect(bc.tls).toBe(false);
+    expect(bc.tokenSource).toBe('none');
+  });
 });
 
 describe('mergeConfig', () => {

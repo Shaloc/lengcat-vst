@@ -49,6 +49,15 @@ describe('renderDashboard', () => {
     expect(html).toContain('value="custom"');
   });
 
+  it('pins leduo-patrol session at the top of the session list in dashboard script', () => {
+    expect(html).toContain("a.type === 'leduoPatrol' ? 0 : 1");
+    expect(html).toContain("b.type === 'leduoPatrol' ? 0 : 1");
+  });
+
+  it('renders leduo-patrol label for leduoPatrol backend type', () => {
+    expect(html).toContain("type === 'leduoPatrol' ? 'leduo-patrol' : type");
+  });
+
   it('contains the toolbar action buttons', () => {
     expect(html).toContain('id="btn-launch"');
     expect(html).toContain('id="btn-stop"');
