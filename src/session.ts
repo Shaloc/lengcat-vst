@@ -35,6 +35,8 @@ export interface SessionInfo {
    * installation) that does not require the `serve-web` subcommand.
    */
   extensionHostOnly?: boolean;
+  /** Access key used by leduo-patrol for authenticated HTTP/WS requests. */
+  accessKey?: string;
 }
 
 /** Internal session record (includes the live process handle). */
@@ -82,6 +84,7 @@ export class SessionManager extends EventEmitter {
       status: 'stopped',
       folder: resolvedConfig.folder,
       extensionHostOnly: resolvedConfig.extensionHostOnly,
+      accessKey: resolvedConfig.accessKey,
     };
     this._sessions.set(id, session);
     return session;
@@ -220,6 +223,9 @@ export class SessionManager extends EventEmitter {
     if (s.errorMessage !== undefined) info.errorMessage = s.errorMessage;
     if (s.folder !== undefined) info.folder = s.folder;
     if (s.extensionHostOnly) info.extensionHostOnly = true;
+    if (s.type === 'leduoPatrol' && s.config.accessKey !== undefined) {
+      info.accessKey = s.config.accessKey;
+    }
     return info;
   }
 }

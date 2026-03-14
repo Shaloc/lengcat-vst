@@ -673,8 +673,16 @@ export function renderDashboard(): string {
 
   function sessionIframeUrl(s) {
     let url = s.pathPrefix + '/';
+    const params = new URLSearchParams();
     if (s.folder) {
-      url += '?folder=' + encodeURIComponent(s.folder);
+      params.set('folder', s.folder);
+    }
+    if (s.type === 'leduoPatrol' && s.accessKey) {
+      params.set('key', s.accessKey);
+    }
+    const qs = params.toString();
+    if (qs) {
+      url += '?' + qs;
     }
     return url;
   }

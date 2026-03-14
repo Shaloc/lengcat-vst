@@ -64,6 +64,11 @@ export interface BackendConfig {
    * can reach the VS Code web workbench served by the binary.
    */
   extensionHostOnly?: boolean;
+  /**
+   * Access key passed to leduo-patrol via `LEDUO_PATROL_ACCESS_KEY`.
+   * When set, the dashboard also appends `?key=...` for the leduo session URL.
+   */
+  accessKey?: string;
 }
 
 /** Top-level configuration for the local tunnel proxy. */
