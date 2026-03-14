@@ -152,12 +152,13 @@ describe('buildCodeServerArgs', () => {
     expect(argsWith).toEqual(argsWithout);
   });
 
-  it('includes --idle-timeout-seconds 0 to keep code-server alive when all tabs close', () => {
+  it('includes --idle-timeout-seconds with a large value to keep code-server alive when all tabs close', () => {
     const config = buildBackendConfig({ type: 'vscode', port: 8080 });
     const args = buildCodeServerArgs(config);
     expect(args).toContain('--idle-timeout-seconds');
     const idx = args.indexOf('--idle-timeout-seconds');
-    expect(args[idx + 1]).toBe('0');
+    // Must be a large positive value — NOT 0 (which means "immediate shutdown on idle").
+    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
   });
 });
 

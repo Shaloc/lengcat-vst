@@ -26,9 +26,17 @@ const EXECUTABLES: Record<BackendType, string> = {
  * running until the session is explicitly stopped via the dashboard.
  *
  * NOTE: code-server (coder/code-server) uses a different flag:
- *       `--idle-timeout-seconds 0` (see buildCodeServerArgs).
+ *       `--idle-timeout-seconds` (see buildCodeServerArgs / CODE_SERVER_IDLE_TIMEOUT_SECONDS).
  */
 const VSCODE_CONNECTION_GRACE_TIME_SECONDS = 9999999; // ~115 days
+
+/**
+ * Idle timeout passed to code-server's `--idle-timeout-seconds`.
+ * Set to a very large value (~115 days) so code-server does NOT exit when all
+ * browser tabs are closed.  This is the code-server equivalent of
+ * VSCODE_CONNECTION_GRACE_TIME_SECONDS (the two binaries use different flags).
+ */
+const CODE_SERVER_IDLE_TIMEOUT_SECONDS = 9999999; // ~115 days
 
 /** Result of resolving the executable path for a backend. */
 export interface BackendExecutable {
@@ -119,12 +127,13 @@ export function buildCodeServerArgs(config: BackendConfig): string[] {
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
     '--user-data-dir', userDataDir,
-    // Disable code-server's idle timeout so it does NOT exit when all browser
-    // tabs are closed.  This keeps AI agents, terminals, and background tasks
-    // alive in VS Code even when no browser window is open.
-    // code-server's --idle-timeout-seconds differs from VS Code serve-web's
-    // --connection-grace-time; setting it to 0 disables the timeout entirely.
-    '--idle-timeout-seconds', '0',
+    // Set code-server's idle timeout to a very large value (~115 days) so it
+    // does NOT deactivate the extension host or exit when all browser tabs are
+    // closed.  This keeps AI agents, terminals, and background tasks alive in
+    // VS Code even when no browser window is open.
+    // NOTE: setting this to 0 means "0 seconds" (immediate shutdown on idle),
+    // NOT "disabled".  Use CODE_SERVER_IDLE_TIMEOUT_SECONDS for a safe large value.
+    '--idle-timeout-seconds', String(CODE_SERVER_IDLE_TIMEOUT_SECONDS),
   ];
   // Note: code-server does not support a --base-path / --server-base-path flag.
   // Path prefix routing is handled by the lengcat-vst proxy, which strips the
