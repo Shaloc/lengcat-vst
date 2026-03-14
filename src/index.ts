@@ -192,6 +192,7 @@ async function main(): Promise<void> {
   const leduoAccessKey =
     opts.leduoAccessKey ??
     process.env.LEDUO_PATROL_ACCESS_KEY ??
+    config.proxySecret ??
     randomBytes(LEDUO_ACCESS_KEY_BYTES).toString('hex');
   const leduoPort = (() => {
     const parsed = parseInt(process.env.LEDUO_PATROL_PORT ?? '', 10);
