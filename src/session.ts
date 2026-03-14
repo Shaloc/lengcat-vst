@@ -140,6 +140,14 @@ export class SessionManager extends EventEmitter {
       session.managed = managed;
       session.pid = managed.process.pid;
       session.startedAt = new Date().toISOString();
+      // For leduoPatrol with LEDUO_PATROL_WEB_PORT, startBackend resolves a
+      // different proxy-target port (the Vite web-server port) than the initial
+      // config.port (the backend API port).  Sync the session record so the
+      // proxy routes traffic to the correct port.
+      if (managed.config.port !== session.config.port) {
+        session.config = { ...session.config, port: managed.config.port };
+        session.port = managed.config.port;
+      }
       session.status = 'running';
 
       void managed.waitForExit().then(() => {
