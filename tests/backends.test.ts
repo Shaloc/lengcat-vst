@@ -79,7 +79,7 @@ describe('resolveExecutable', () => {
     expect(args[0]).toBe('serve-web');
   });
 
-  it('includes --connection-grace-time for non-extensionHostOnly serve-web backends', () => {
+  it('includes --connection-grace-time for serve-web backends', () => {
     const config = buildBackendConfig({ type: 'vscode' });
     const { args } = resolveExecutable(config);
     expect(args).toContain('--connection-grace-time');
@@ -87,10 +87,13 @@ describe('resolveExecutable', () => {
     expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
   });
 
-  it('omits --connection-grace-time when extensionHostOnly is true', () => {
+  it('includes --connection-grace-time for extensionHostOnly backends to keep extension host alive when all tabs close', () => {
     const config = buildBackendConfig({ type: 'vscode', extensionHostOnly: true });
     const { args } = resolveExecutable(config);
-    expect(args).not.toContain('--connection-grace-time');
+    expect(args).toContain('--connection-grace-time');
+    const idx = args.indexOf('--connection-grace-time');
+    // Must be a large positive value — same as serve-web, prevents extension host suspension.
+    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
   });
 });
 

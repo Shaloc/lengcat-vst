@@ -91,19 +91,19 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
     args.push('--without-connection-token');
   }
 
-  // Prevent VS Code's serve-web from shutting down when the last browser
-  // client disconnects.  By default VS Code's serve-web exits after a grace
-  // period (--connection-grace-time) once all tabs are closed, which would
-  // kill background tasks such as AI agents and running terminals.  Setting
-  // this to a very large value (VSCODE_CONNECTION_GRACE_TIME_SECONDS, ~115
-  // days) effectively keeps the server alive until it is explicitly stopped
-  // via the dashboard.
-  // NOTE: this flag is specific to VS Code's built-in serve-web subcommand.
+  // Prevent the VS Code server from suspending the extension host when the last
+  // browser client disconnects.  By default VS Code exits (or suspends
+  // extension-host activity) after its built-in grace period once all tabs
+  // close, which pauses AI agents, terminals, and background tasks.  Setting
+  // --connection-grace-time to a very large value (~115 days) keeps the
+  // extension host fully active until the session is explicitly stopped via
+  // the dashboard.
+  // NOTE: this flag is a VS Code *server-level* flag — it applies both when
+  //       the binary runs as a serve-web server AND when it runs as an
+  //       extension-host-only server (extensionHostOnly: true).
   //       code-server (coder/code-server) uses --idle-timeout-seconds instead;
   //       that is handled in buildCodeServerArgs() below.
-  if (!config.extensionHostOnly) {
-    args.push('--connection-grace-time', String(VSCODE_CONNECTION_GRACE_TIME_SECONDS));
-  }
+  args.push('--connection-grace-time', String(VSCODE_CONNECTION_GRACE_TIME_SECONDS));
 
   return { command, args };
 }
