@@ -84,7 +84,12 @@ describe('resolveExecutable', () => {
     const { args } = resolveExecutable(config);
     expect(args).toContain('--connection-grace-time');
     const idx = args.indexOf('--connection-grace-time');
-    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
+    const value = parseInt(args[idx + 1], 10);
+    expect(value).toBeGreaterThan(0);
+    // Must not overflow a 32-bit signed integer when converted to ms
+    // (overflow causes Node.js to reset the timer to 1 ms, triggering
+    // an immediate idle-timeout — the bug we're guarding against).
+    expect(value * 1000).toBeLessThanOrEqual(2147483647);
   });
 
   it('includes --connection-grace-time for extensionHostOnly backends to keep extension host alive when all tabs close', () => {
@@ -92,8 +97,11 @@ describe('resolveExecutable', () => {
     const { args } = resolveExecutable(config);
     expect(args).toContain('--connection-grace-time');
     const idx = args.indexOf('--connection-grace-time');
+    const value = parseInt(args[idx + 1], 10);
     // Must be a large positive value — same as serve-web, prevents extension host suspension.
-    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
+    expect(value).toBeGreaterThan(0);
+    // Must not overflow a 32-bit signed integer when converted to ms.
+    expect(value * 1000).toBeLessThanOrEqual(2147483647);
   });
 });
 
@@ -160,8 +168,13 @@ describe('buildCodeServerArgs', () => {
     const args = buildCodeServerArgs(config);
     expect(args).toContain('--idle-timeout-seconds');
     const idx = args.indexOf('--idle-timeout-seconds');
+    const value = parseInt(args[idx + 1], 10);
     // Must be a large positive value — NOT 0 (which means "immediate shutdown on idle").
-    expect(parseInt(args[idx + 1], 10)).toBeGreaterThan(0);
+    expect(value).toBeGreaterThan(0);
+    // Must not overflow a 32-bit signed integer when converted to ms
+    // (overflow causes Node.js to reset the timer to 1 ms, triggering
+    // an immediate idle-timeout — the bug we're guarding against).
+    expect(value * 1000).toBeLessThanOrEqual(2147483647);
   });
 });
 

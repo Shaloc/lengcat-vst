@@ -21,22 +21,27 @@ const EXECUTABLES: Record<BackendType, string> = {
 
 /**
  * Grace time passed to VS Code's built-in `serve-web --connection-grace-time`.
- * Set to a very large value (~115 days) so the server does NOT auto-exit when
- * all browser tabs are closed.  Background tasks (AI agents, terminals) continue
- * running until the session is explicitly stopped via the dashboard.
+ * Set to the largest value that, when multiplied by 1000, still fits in a
+ * 32-bit signed integer (Node.js's internal representation for setTimeout).
+ * This is 2 147 483 seconds ≈ 24.8 days — effectively "never" for a dev
+ * session, but without triggering a TimeoutOverflowWarning that would reset
+ * the timer to 1 ms and cause an immediate idle-timeout.
  *
  * NOTE: code-server (coder/code-server) uses a different flag:
  *       `--idle-timeout-seconds` (see buildCodeServerArgs / CODE_SERVER_IDLE_TIMEOUT_SECONDS).
  */
-const VSCODE_CONNECTION_GRACE_TIME_SECONDS = 9999999; // ~115 days
+const VSCODE_CONNECTION_GRACE_TIME_SECONDS = 2147483; // max safe (~24.8 days)
 
 /**
  * Idle timeout passed to code-server's `--idle-timeout-seconds`.
- * Set to a very large value (~115 days) so code-server does NOT exit when all
- * browser tabs are closed.  This is the code-server equivalent of
- * VSCODE_CONNECTION_GRACE_TIME_SECONDS (the two binaries use different flags).
+ * Set to the largest value that, when multiplied by 1000, still fits in a
+ * 32-bit signed integer (Node.js's internal representation for setTimeout).
+ * This is 2 147 483 seconds ≈ 24.8 days — effectively "never" for a dev
+ * session, but without triggering a TimeoutOverflowWarning that would reset
+ * the timer to 1 ms and cause an immediate idle-timeout.
+ * This is the code-server equivalent of VSCODE_CONNECTION_GRACE_TIME_SECONDS.
  */
-const CODE_SERVER_IDLE_TIMEOUT_SECONDS = 9999999; // ~115 days
+const CODE_SERVER_IDLE_TIMEOUT_SECONDS = 2147483; // max safe (~24.8 days)
 
 /** Result of resolving the executable path for a backend. */
 export interface BackendExecutable {
@@ -95,9 +100,11 @@ export function resolveExecutable(config: BackendConfig): BackendExecutable {
   // browser client disconnects.  By default VS Code exits (or suspends
   // extension-host activity) after its built-in grace period once all tabs
   // close, which pauses AI agents, terminals, and background tasks.  Setting
-  // --connection-grace-time to a very large value (~115 days) keeps the
+  // --connection-grace-time to the max 32-bit-safe value (~24.8 days) keeps the
   // extension host fully active until the session is explicitly stopped via
-  // the dashboard.
+  // the dashboard.  Values larger than 2 147 483 s overflow Node.js's 32-bit
+  // setTimeout representation and reset the timer to 1 ms, causing immediate
+  // shutdown.
   // NOTE: this flag is a VS Code *server-level* flag — it applies both when
   //       the binary runs as a serve-web server AND when it runs as an
   //       extension-host-only server (extensionHostOnly: true).
@@ -127,10 +134,12 @@ export function buildCodeServerArgs(config: BackendConfig): string[] {
     '--bind-addr', `${host}:${config.port}`,
     '--auth', 'none',
     '--user-data-dir', userDataDir,
-    // Set code-server's idle timeout to a very large value (~115 days) so it
-    // does NOT deactivate the extension host or exit when all browser tabs are
-    // closed.  This keeps AI agents, terminals, and background tasks alive in
-    // VS Code even when no browser window is open.
+    // Set code-server's idle timeout to the max 32-bit-safe value (~24.8 days)
+    // so it does NOT deactivate the extension host or exit when all browser
+    // tabs are closed.  This keeps AI agents, terminals, and background tasks
+    // alive in VS Code even when no browser window is open.
+    // Values larger than 2 147 483 s overflow Node.js's 32-bit setTimeout
+    // representation and reset the timer to 1 ms, causing immediate shutdown.
     // NOTE: setting this to 0 means "0 seconds" (immediate shutdown on idle),
     // NOT "disabled".  Use CODE_SERVER_IDLE_TIMEOUT_SECONDS for a safe large value.
     '--idle-timeout-seconds', String(CODE_SERVER_IDLE_TIMEOUT_SECONDS),
