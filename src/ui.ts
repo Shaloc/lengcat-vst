@@ -991,6 +991,28 @@ export function renderDashboard(): string {
     }
   });
 
+  // ── leduo-patrol → VS Code bridge (postMessage) ──────────────
+  // Listens for messages from leduo-patrol iframes requesting to open a
+  // folder in a VS Code session.  The /api/sessions/open-folder endpoint
+  // either finds an existing running VS Code session for that folder or
+  // creates and launches a new one with the next available port.
+  window.addEventListener('message', async function(e) {
+    if (!e.data || e.data.type !== 'lvst:open-folder') return;
+    var folder = typeof e.data.folder === 'string' ? e.data.folder.trim() : '';
+    if (!folder) return;
+    try {
+      var session = await apiFetch('/api/sessions/open-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: folder }),
+      });
+      if (session && session.id) {
+        await fetchSessions();
+        selectSession(session.id);
+      }
+    } catch (_) { /* error already shown by apiFetch */ }
+  });
+
   // ── Polling ──────────────────────────────────────────────────
   function startPolling() {
     pollTimer = setInterval(fetchSessions, 3000);
