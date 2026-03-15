@@ -35,6 +35,49 @@ import { execSync } from 'child_process';
 /** Fallback version used when the GitHub Releases API is unreachable. */
 export const CODE_SERVER_FALLBACK_VERSION = '4.96.4';
 
+// ── Global download-progress tracking ───────────────────────────────────────
+// Allows the REST API to expose real-time download progress to the dashboard
+// without requiring an SSE or WebSocket stream — the frontend simply polls.
+
+export interface DownloadProgress {
+  /** True while a download is in progress. */
+  downloading: boolean;
+  /** 0–100 percentage (based on Content-Length). -1 when unknown. */
+  percent: number;
+  /** The version being downloaded/installed. */
+  version: string;
+  /** Human-readable status line. */
+  message: string;
+  /** Non-empty when the download/install failed. */
+  error: string;
+}
+
+const _progress: DownloadProgress = {
+  downloading: false,
+  percent: 0,
+  version: '',
+  message: '',
+  error: '',
+};
+
+/** Returns a snapshot of the current download progress (safe to serialise). */
+export function getDownloadProgress(): Readonly<DownloadProgress> {
+  return { ..._progress };
+}
+
+/** Resets progress to idle (used after install completes or fails). */
+function resetProgress(): void {
+  _progress.downloading = false;
+  _progress.percent = 0;
+  _progress.version = '';
+  _progress.message = '';
+  _progress.error = '';
+}
+
+function updateProgress(patch: Partial<DownloadProgress>): void {
+  Object.assign(_progress, patch);
+}
+
 /** Persistent directory where the code-server binary is cached. */
 export const CODE_SERVER_CACHE_DIR = path.join(
   os.homedir(),
@@ -348,9 +391,12 @@ function downloadFile(
         let received = 0;
         res.on('data', (chunk: Buffer) => {
           received += chunk.length;
+          const pct = total > 0 ? Math.round((received / total) * 100) : -1;
           if (onProgress && total > 0) {
-            onProgress(`  ${Math.round((received / total) * 100)}%`);
+            onProgress(`  ${pct}%`);
           }
+          // Update global progress tracker so the dashboard can poll it.
+          updateProgress({ percent: pct, message: `Downloading… ${pct >= 0 ? pct + '%' : ''}` });
         });
         res.pipe(file);
         file.on('finish', () => file.close(() => resolve()));
@@ -412,10 +458,17 @@ export async function installCodeServer(
   if (!fs.existsSync(tarball)) {
     onProgress?.(`  Downloading code-server v${version} from GitHub…`);
     onProgress?.(`  (Tip: to skip the download, place the tarball at:\n      ${tarball})`);
-    await downloadFileWithRetry(url, tarball, onProgress);
+    updateProgress({ downloading: true, percent: 0, version, message: 'Starting download…', error: '' });
+    try {
+      await downloadFileWithRetry(url, tarball, onProgress);
+    } catch (err) {
+      updateProgress({ downloading: false, error: (err as Error).message });
+      throw err;
+    }
   }
 
   onProgress?.('  Extracting…');
+  updateProgress({ message: 'Extracting…', percent: 100 });
   try {
     execSync(
       `tar -xzf ${JSON.stringify(tarball)} -C ${JSON.stringify(CODE_SERVER_CACHE_DIR)}`
@@ -424,23 +477,24 @@ export async function installCodeServer(
     // Tarball is corrupt or incomplete — remove it so the next run can
     // download a fresh copy.
     try { fs.unlinkSync(tarball); } catch { /* ignore */ }
-    throw new Error(
-      `Failed to extract code-server tarball: ${(extractErr as Error).message}\n` +
+    const msg = `Failed to extract code-server tarball: ${(extractErr as Error).message}\n` +
       `The corrupt file has been removed. Run the command again to re-download, or\n` +
-      `place a valid tarball at: ${tarball}`
-    );
+      `place a valid tarball at: ${tarball}`;
+    updateProgress({ downloading: false, error: msg });
+    throw new Error(msg);
   }
 
   if (!fs.existsSync(binPath)) {
-    throw new Error(
-      `Extraction succeeded but binary not found at expected path: ${binPath}\n` +
-      `This may indicate the tarball was for a different platform or arch.`
-    );
+    const msg = `Extraction succeeded but binary not found at expected path: ${binPath}\n` +
+      `This may indicate the tarball was for a different platform or arch.`;
+    updateProgress({ downloading: false, error: msg });
+    throw new Error(msg);
   }
 
   fs.chmodSync(binPath, 0o755);
   fs.writeFileSync(CODE_SERVER_VERSION_FILE, version, 'utf-8');
   onProgress?.(`  Installed at ${binPath}`);
+  resetProgress();
   return binPath;
 }
 
