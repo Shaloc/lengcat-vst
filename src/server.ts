@@ -178,12 +178,63 @@ export function selectBackend(url: string, backends: BackendConfig[]): BackendCo
   return backends[0];
 }
 
+// ── leduo-patrol content-script injection ─────────────────────────────────
+// When leduo-patrol is loaded inside a lengcat-vst iframe, this script is
+// injected into its HTML pages.  It turns filesystem-path elements into
+// clickable links that send a postMessage to the dashboard, which then
+// opens (or switches to) a VS Code session for that folder.
+const LEDUO_PATROL_INJECTION_SCRIPT = `<script data-lvst-injected>
+(function(){
+  if(window.parent===window)return;
+  function isAbsPath(t){
+    t=t.trim();
+    return t.length>=2&&t.startsWith('/')&&t.indexOf('/',1)>0&&!/\\s/.test(t)&&!t.includes('<');
+  }
+  function process(el){
+    if(!el||!el.tagName)return;
+    if(el.dataset&&el.dataset.lvstProcessed)return;
+    if(/^(A|BUTTON|INPUT|TEXTAREA|SCRIPT|STYLE|SVG)$/.test(el.tagName))return;
+    if(el.closest&&el.closest('a,button'))return;
+    if(el.children&&el.children.length>0)return;
+    var text=el.textContent||'';
+    if(!isAbsPath(text))return;
+    el.dataset.lvstProcessed='1';
+    el.style.cursor='pointer';
+    el.style.textDecoration='underline';
+    el.style.textDecorationColor='rgba(137,180,250,0.5)';
+    el.style.textUnderlineOffset='3px';
+    el.title='Open in VS Code session';
+    el.addEventListener('click',function(e){
+      e.preventDefault();e.stopPropagation();
+      window.parent.postMessage({type:'lvst:open-folder',folder:text.trim()},'*');
+    });
+  }
+  function scan(root){
+    if(!root||!root.querySelectorAll)return;
+    root.querySelectorAll('*').forEach(process);
+  }
+  function init(){scan(document.body);
+    new MutationObserver(function(ms){
+      for(var i=0;i<ms.length;i++)
+        for(var j=0;j<ms[i].addedNodes.length;j++){
+          var n=ms[i].addedNodes[j];
+          if(n.nodeType===1){process(n);scan(n);}
+        }
+    }).observe(document.body,{childList:true,subtree:true});
+  }
+  if(document.body)init();
+  else document.addEventListener('DOMContentLoaded',init);
+})();
+</` + `script>`;
+
 /** Returns a per-origin proxy instance, creating one on first use. */
 function getOrCreateProxy(
   backend: BackendConfig,
   cache: Map<string, httpProxy>
 ): httpProxy {
   const origin = backendOrigin(backend);
+  const isLeduoPatrol = backend.type === 'leduoPatrol';
+
   if (!cache.has(origin)) {
     const proxy = httpProxy.createProxyServer({
       target: origin,
@@ -195,12 +246,23 @@ function getOrCreateProxy(
       autoRewrite: true,
       // Do not verify SSL cert of backend (useful for self-signed certs).
       secure: false,
+      // For leduo-patrol backends, disable automatic response piping so we can
+      // inject a content script into HTML responses.
+      selfHandleResponse: isLeduoPatrol,
     });
+
+    // For leduo-patrol, strip Accept-Encoding so the backend responds with
+    // uncompressed HTML that we can safely modify for script injection.
+    if (isLeduoPatrol) {
+      proxy.on('proxyReq', (proxyReq: http.ClientRequest) => {
+        proxyReq.removeHeader('Accept-Encoding');
+      });
+    }
 
     // ── HTTP response fixups ────────────────────────────────────────────────
     // Strip headers that would prevent VS Code from loading inside the
     // dashboard iframe.
-    proxy.on('proxyRes', (proxyRes: http.IncomingMessage) => {
+    proxy.on('proxyRes', (proxyRes: http.IncomingMessage, _req: http.IncomingMessage, res: http.ServerResponse | net.Socket) => {
       // X-Frame-Options: DENY/SAMEORIGIN blocks iframe embedding entirely.
       delete proxyRes.headers['x-frame-options'];
 
@@ -210,16 +272,22 @@ function getOrCreateProxy(
       // because its directives do not contain semicolons inside quoted values.
       const csp = proxyRes.headers['content-security-policy'];
       if (typeof csp === 'string') {
-        const stripped = csp
-          .split(';')
-          .filter((d) => !/^\s*frame-ancestors\b/i.test(d))
-          .join(';')
-          .trim()
-          .replace(/;$/, '');
-        if (stripped) {
-          proxyRes.headers['content-security-policy'] = stripped;
-        } else {
+        if (isLeduoPatrol) {
+          // Remove the entire CSP for leduo-patrol so the injected inline
+          // script executes without being blocked by script-src restrictions.
           delete proxyRes.headers['content-security-policy'];
+        } else {
+          const stripped = csp
+            .split(';')
+            .filter((d) => !/^\s*frame-ancestors\b/i.test(d))
+            .join(';')
+            .trim()
+            .replace(/;$/, '');
+          if (stripped) {
+            proxyRes.headers['content-security-policy'] = stripped;
+          } else {
+            delete proxyRes.headers['content-security-policy'];
+          }
         }
       }
 
@@ -230,6 +298,38 @@ function getOrCreateProxy(
       // '/'.  The Service-Worker-Allowed response header explicitly grants the
       // wider scope.
       proxyRes.headers['service-worker-allowed'] = '/';
+
+      // ── leduo-patrol: inject content script into HTML responses ──────────
+      // selfHandleResponse is true for leduo-patrol proxies, so we must
+      // manually forward every response.  The proxyRes event only fires for
+      // HTTP requests (not WebSocket upgrades), so res is always a
+      // ServerResponse — the instanceof guard is a defensive type-check.
+      if (isLeduoPatrol) {
+        if (!(res instanceof http.ServerResponse)) {
+          proxyRes.resume(); // drain to prevent back-pressure
+          return;
+        }
+        const ct = String(proxyRes.headers['content-type'] || '');
+        if (ct.includes('text/html')) {
+          const chunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+          proxyRes.on('end', () => {
+            let body = Buffer.concat(chunks).toString('utf-8');
+            body = body.replace(/<\/body>/i, LEDUO_PATROL_INJECTION_SCRIPT + '</body>');
+            const buf = Buffer.from(body, 'utf-8');
+            // We're sending the full body at once, so use Content-Length and
+            // remove Transfer-Encoding to avoid an HTTP parse error.
+            delete proxyRes.headers['transfer-encoding'];
+            proxyRes.headers['content-length'] = String(buf.length);
+            res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+            res.end(buf);
+          });
+        } else {
+          // Non-HTML response: pipe through unchanged.
+          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+          proxyRes.pipe(res);
+        }
+      }
     });
 
     // ── WebSocket upgrade fixup ─────────────────────────────────────────────
@@ -433,6 +533,62 @@ async function handleUiRequest(
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: (err as Error).message }));
     }
+    return;
+  }
+
+  // Open folder — find an existing VS Code session for the given folder path,
+  // or create (and launch) a new one with the next available port.
+  // Used by the dashboard's postMessage bridge so that leduo-patrol iframes
+  // can request "open this folder in VS Code" without knowing the session list.
+  if (method === 'POST' && path === '/api/sessions/open-folder') {
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body.' }));
+      return;
+    }
+    const folder = typeof body.folder === 'string' ? body.folder.trim() : '';
+    if (!folder) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing "folder" field.' }));
+      return;
+    }
+
+    // Look for an existing VS Code session already open at this folder.
+    const existing = sessions.list().find(
+      (s) => s.type === 'vscode' && s.folder === folder && s.status === 'running'
+    );
+    if (existing) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sessions.get(existing.id)));
+      return;
+    }
+
+    // Pick the next available port (starting from 8000).
+    const usedPorts = new Set(sessions.list().map((s) => s.port));
+    let port = 8000;
+    while (usedPorts.has(port)) port++;
+
+    const cfg = buildBackendConfig({
+      type: 'vscode',
+      host: '127.0.0.1',
+      port,
+      tls: false,
+      tokenSource: 'none',
+      folder,
+    });
+    const session = sessions.register(cfg);
+
+    try {
+      await sessions.launch(session.id);
+    } catch {
+      // Return the session record even if launch failed; status will be 'error'.
+    }
+
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(sessions.get(session.id)));
     return;
   }
 

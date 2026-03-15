@@ -164,6 +164,15 @@ describe('renderDashboard', () => {
     expect(html).toContain('<svg');
     expect(html).toContain('viewBox=');
   });
+
+  it('contains the postMessage listener for lvst:open-folder from leduo-patrol iframes', () => {
+    expect(html).toContain("e.data.type !== 'lvst:open-folder'");
+    expect(html).toContain('/api/sessions/open-folder');
+  });
+
+  it('calls selectSession after open-folder API response', () => {
+    expect(html).toContain('selectSession(session.id)');
+  });
 });
 
 describe('renderLoginPage', () => {

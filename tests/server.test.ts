@@ -531,6 +531,66 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
     expect(mgr.get(s.id)?.folder).toBe('/my/folder');
     await tunnel.close();
   });
+
+  it('POST /api/sessions/open-folder returns 400 for invalid JSON', async () => {
+    const { tunnel, port } = await startUiServer();
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/open-folder`, 'not-json');
+    expect(r.status).toBe(400);
+    await tunnel.close();
+  });
+
+  it('POST /api/sessions/open-folder returns 400 when folder is missing', async () => {
+    const { tunnel, port } = await startUiServer();
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/open-folder`, JSON.stringify({}));
+    expect(r.status).toBe(400);
+    expect(JSON.parse(r.body).error).toMatch(/folder/i);
+    await tunnel.close();
+  });
+
+  it('POST /api/sessions/open-folder returns existing running session if folder matches', async () => {
+    const mgr = new SessionManager();
+    const s = mgr.register(buildBackendConfig({ type: 'vscode', port: 8000, folder: '/home/user/project' }));
+    // Simulate a running session without spawning a real process.
+    s.status = 'running';
+
+    const { tunnel, port } = await startUiServer(mgr);
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/open-folder`,
+      JSON.stringify({ folder: '/home/user/project' }));
+    expect(r.status).toBe(200);
+    const body = JSON.parse(r.body) as { id: string; folder?: string };
+    expect(body.id).toBe(s.id);
+    expect(body.folder).toBe('/home/user/project');
+    await tunnel.close();
+  });
+
+  it('POST /api/sessions/open-folder creates a new session when no match exists', async () => {
+    const { tunnel, port, mgr } = await startUiServer();
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/open-folder`,
+      JSON.stringify({ folder: '/home/user/new-project' }));
+    expect(r.status).toBe(201);
+    const body = JSON.parse(r.body) as { id: string; folder?: string; type: string; port: number };
+    expect(body.folder).toBe('/home/user/new-project');
+    expect(body.type).toBe('vscode');
+    expect(body.port).toBeGreaterThanOrEqual(8000);
+    // Session should be registered in the manager.
+    expect(mgr.list().some(s => s.folder === '/home/user/new-project')).toBe(true);
+    await tunnel.close();
+  });
+
+  it('POST /api/sessions/open-folder picks next available port avoiding conflicts', async () => {
+    const mgr = new SessionManager();
+    mgr.register(buildBackendConfig({ type: 'vscode', port: 8000 }));
+    mgr.register(buildBackendConfig({ type: 'vscode', port: 8001 }));
+
+    const { tunnel, port } = await startUiServer(mgr);
+    const r = await httpRequest('POST', `http://127.0.0.1:${port}/api/sessions/open-folder`,
+      JSON.stringify({ folder: '/home/user/proj' }));
+    expect(r.status).toBe(201);
+    const body = JSON.parse(r.body) as { port: number };
+    // Ports 8000 and 8001 are taken, so the new session should use 8002.
+    expect(body.port).toBe(8002);
+    await tunnel.close();
+  });
 });
 
 // ---------------------------------------------------------------------------
