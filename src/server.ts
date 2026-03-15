@@ -206,7 +206,8 @@ const LEDUO_PATROL_INJECTION_SCRIPT = `<script data-lvst-injected>
     el.title='Open in VS Code session';
     el.addEventListener('click',function(e){
       e.preventDefault();e.stopPropagation();
-      window.parent.postMessage({type:'lvst:open-folder',folder:text.trim()},'*');
+      var cur=(el.textContent||'').trim();
+      if(isAbsPath(cur))window.parent.postMessage({type:'lvst:open-folder',folder:cur},'*');
     });
   }
   function scan(root){

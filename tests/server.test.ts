@@ -51,6 +51,21 @@ function startEchoServer(responseBody: string): Promise<{ server: http.Server; p
   });
 }
 
+/** Starts a simple HTTP server that returns HTML with the given body content. */
+function startHtmlServer(htmlBody: string): Promise<{ server: http.Server; port: number }> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<html><body>${htmlBody}</body></html>`);
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as { port: number };
+      resolve({ server, port: addr.port });
+    });
+    server.once('error', reject);
+  });
+}
+
 describe('TunnelServer (HTTP proxying)', () => {
   it('throws when no backends are configured', () => {
     const config = mergeConfig({ backends: [] });
@@ -462,6 +477,32 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
     const r = await httpGet(`http://127.0.0.1:${port}/api/config?key=test`);
     expect(r.status).toBe(200);
     expect(r.body).toContain('{"ok":true}');
+
+    await tunnel.close();
+    await new Promise<void>((resolve) => echo.close(() => resolve()));
+  });
+
+  it('injects script into leduoPatrol HTML that reads el.textContent at click time', async () => {
+    // Regression: the injection script used to capture textContent in a
+    // closure variable at processing time.  When the DOM text changed (e.g.
+    // the user navigated to a different session), the click handler would
+    // still send the stale, originally-captured path.  The fix reads
+    // el.textContent inside the click handler so the current value is used.
+    const { server: echo, port: echoPort } = await startHtmlServer('<span>/some/path</span>');
+    const mgr = new SessionManager();
+    const s = mgr.register(
+      buildBackendConfig({ type: 'leduoPatrol', host: '127.0.0.1', port: echoPort })
+    );
+    s.status = 'running';
+
+    const { tunnel, port } = await startUiServer(mgr);
+
+    const r = await httpGet(`http://127.0.0.1:${port}${s.pathPrefix}/`);
+    expect(r.status).toBe(200);
+    // The injected script should read el.textContent at click time, not use
+    // the closure-captured variable from processing time.
+    expect(r.body).toContain('data-lvst-injected');
+    expect(r.body).toContain('el.textContent');
 
     await tunnel.close();
     await new Promise<void>((resolve) => echo.close(() => resolve()));
