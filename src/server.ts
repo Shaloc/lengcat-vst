@@ -19,7 +19,7 @@ import * as crypto from 'crypto';
 import * as nodePath from 'path';
 import * as nodeFs from 'fs';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import httpProxy from 'http-proxy';
 import { WebSocketServer, WebSocket } from 'ws';
 import { BackendConfig, BackendType, TunnelConfig, buildBackendConfig } from './config';
@@ -708,9 +708,12 @@ async function handleUiRequest(
     req.pipe(ws);
     ws.on('finish', () => {
       try {
-        execSync(
-          `tar -xzf ${JSON.stringify(dest)} -C ${JSON.stringify(CODE_SERVER_CACHE_DIR)}`
-        );
+        const tarResult = spawnSync('tar', ['-xzf', dest, '-C', CODE_SERVER_CACHE_DIR], {
+          stdio: 'pipe',
+        });
+        if (tarResult.status !== 0) {
+          throw new Error(tarResult.stderr?.toString() || 'tar extraction failed');
+        }
 
         // Detect version from the extracted directory name.
         // The tarball contains a directory named code-server-<version>-<platform>-<arch>.
@@ -760,9 +763,12 @@ async function handleUiRequest(
     ws.on('finish', () => {
       try {
         nodeFs.mkdirSync(tmpExtractDir, { recursive: true });
-        execSync(
-          `tar -xzf ${JSON.stringify(tmpFile)} -C ${JSON.stringify(tmpExtractDir)}`
-        );
+        const tarResult = spawnSync('tar', ['-xzf', tmpFile, '-C', tmpExtractDir], {
+          stdio: 'pipe',
+        });
+        if (tarResult.status !== 0) {
+          throw new Error(tarResult.stderr?.toString() || 'tar extraction failed');
+        }
 
         // If tarball has a single root directory, use its contents.
         const entries = nodeFs.readdirSync(tmpExtractDir);
@@ -772,29 +778,29 @@ async function handleUiRequest(
             ? nodePath.join(tmpExtractDir, entries[0])
             : tmpExtractDir;
 
-        // Copy to the leduo-patrol directory
+        // Copy to the leduo-patrol directory using Node.js native APIs.
         nodeFs.mkdirSync(leduoDir, { recursive: true });
-        execSync(`cp -a ${JSON.stringify(sourceDir + '/.')} ${JSON.stringify(leduoDir + '/')}`);
+        nodeFs.cpSync(sourceDir, leduoDir, { recursive: true, force: true });
 
         // Run npm install if package.json exists
         let npmInstalled = false;
         if (nodeFs.existsSync(nodePath.join(leduoDir, 'package.json'))) {
           try {
-            execSync('npm install --production', {
+            const npmResult = spawnSync('npm', ['install', '--production'], {
               cwd: leduoDir,
               timeout: 120_000,
               stdio: 'pipe',
             });
-            npmInstalled = true;
+            npmInstalled = npmResult.status === 0;
           } catch {
             // npm install failure is non-fatal; user can retry via terminal
           }
         }
 
-        // Cleanup temp files
+        // Cleanup temp files using Node.js native APIs
         try {
           nodeFs.unlinkSync(tmpFile);
-          execSync(`rm -rf ${JSON.stringify(tmpExtractDir)}`);
+          nodeFs.rmSync(tmpExtractDir, { recursive: true, force: true });
         } catch { /* ignore */ }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -808,7 +814,7 @@ async function handleUiRequest(
       } catch (err) {
         // Cleanup on error
         try { nodeFs.unlinkSync(tmpFile); } catch { /* ignore */ }
-        try { execSync(`rm -rf ${JSON.stringify(tmpExtractDir)}`); } catch { /* ignore */ }
+        try { nodeFs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch { /* ignore */ }
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: `Upload failed: ${(err as Error).message}` }));

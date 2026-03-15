@@ -967,6 +967,15 @@ LEDUO_PATROL_ACCESS_KEY=your-secret-key</div>
     var cloneCmd = document.getElementById('ob-lp-clone-cmd');
     var envActions = document.getElementById('ob-lp-env-actions');
 
+    var envCmd = "cat > " + lp.dir + "/.env << 'EOF'\\nPORT=3001\\nLEDUO_PATROL_WEB_PORT=3002\\nLEDUO_PATROL_ACCESS_KEY=changeme\\nEOF\\n";
+
+    function attachEnvButton() {
+      var btn = document.getElementById('ob-lp-create-env');
+      if (btn) {
+        btn.addEventListener('click', function() { if (obTerm) obTermWrite(envCmd); });
+      }
+    }
+
     if (lp.dirExists && lp.envFileExists) {
       step.classList.add('ready');
       badge.textContent = '✓ Ready';
@@ -983,12 +992,7 @@ LEDUO_PATROL_ACCESS_KEY=your-secret-key</div>
       envSection.style.display = 'block';
       envActions.innerHTML =
         '<button class="btn btn-primary" id="ob-lp-create-env">Create default .env</button>';
-      document.getElementById('ob-lp-create-env').addEventListener('click', function() {
-        if (obTerm) {
-          var cmd = "cat > " + lp.dir + "/.env << 'EOF'\\nPORT=3001\\nLEDUO_PATROL_WEB_PORT=3002\\nLEDUO_PATROL_ACCESS_KEY=changeme\\nEOF\\n";
-          obTermWrite(cmd);
-        }
-      });
+      attachEnvButton();
     } else {
       step.classList.remove('ready');
       badge.textContent = 'not found';
@@ -1001,12 +1005,7 @@ LEDUO_PATROL_ACCESS_KEY=your-secret-key</div>
         'cd ' + lp.dir + ' && npm install';
       envActions.innerHTML =
         '<button class="btn btn-primary" id="ob-lp-create-env">Create default .env (after install)</button>';
-      document.getElementById('ob-lp-create-env').addEventListener('click', function() {
-        if (obTerm) {
-          var cmd = "cat > " + lp.dir + "/.env << 'EOF'\\nPORT=3001\\nLEDUO_PATROL_WEB_PORT=3002\\nLEDUO_PATROL_ACCESS_KEY=changeme\\nEOF\\n";
-          obTermWrite(cmd);
-        }
-      });
+      attachEnvButton();
     }
   }
 

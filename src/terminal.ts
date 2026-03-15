@@ -90,10 +90,14 @@ export function createTerminalSession(
   });
 
   // Absorb errors so they don't crash the Node.js process.
+  // Also forward the error message through the data callbacks so the
+  // connected WebSocket client can display it in the terminal UI.
   proc.on('error', (err) => {
     process.stderr.write(
       `[lengcat-vst] terminal process error: ${err.message}\n`
     );
+    const msg = `\r\n[Terminal error: ${err.message}]\r\n`;
+    for (const cb of dataCallbacks) cb(msg);
   });
 
   return {
