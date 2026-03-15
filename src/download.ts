@@ -78,6 +78,24 @@ function updateProgress(patch: Partial<DownloadProgress>): void {
   Object.assign(_progress, patch);
 }
 
+// ── Download cancellation ───────────────────────────────────────────────────
+let _activeDownloadReq: http.ClientRequest | null = null;
+let _downloadCancelled = false;
+
+/**
+ * Cancels the currently running code-server download (if any).
+ * The download promise will reject with a "cancelled" error and
+ * `downloadFileWithRetry` will not retry.
+ */
+export function cancelCodeServerDownload(): void {
+  _downloadCancelled = true;
+  if (_activeDownloadReq) {
+    _activeDownloadReq.destroy(new Error('Download cancelled by user'));
+    _activeDownloadReq = null;
+  }
+  updateProgress({ downloading: false, message: 'Download cancelled', error: '' });
+}
+
 /** Persistent directory where the code-server binary is cached. */
 export const CODE_SERVER_CACHE_DIR = path.join(
   os.homedir(),
@@ -326,6 +344,9 @@ async function downloadFileWithRetry(
   let lastErr: Error | undefined;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // Bail immediately if the user cancelled the download.
+    if (_downloadCancelled) throw new Error('Download cancelled by user');
+
     if (attempt > 0) {
       const delaySec = Math.pow(2, attempt); // 2, 4, 8 seconds
       onProgress?.(
@@ -369,6 +390,8 @@ function downloadFile(
     function attempt(u: string, redirectsLeft: number): void {
       const mod: typeof https | typeof http = u.startsWith('https') ? https : http;
       const req = mod.get(u, (res) => {
+        // Store active request so cancelCodeServerDownload() can abort it.
+        _activeDownloadReq = req;
         if (
           res.statusCode !== undefined &&
           res.statusCode >= 300 &&
@@ -431,6 +454,10 @@ export async function installCodeServer(
   version: string,
   onProgress?: (msg: string) => void
 ): Promise<string> {
+  // Reset cancellation flag at the start of a new install.
+  _downloadCancelled = false;
+  _activeDownloadReq = null;
+
   const binPath = codeServerBinPath(version);
 
   if (fs.existsSync(binPath)) {

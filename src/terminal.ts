@@ -59,8 +59,11 @@ export function createTerminalSession(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } else {
-    // Linux: script -qefc 'bash -i' /dev/null
-    proc = spawn('script', ['-qefc', 'bash -i', '/dev/null'], {
+    // Linux: script -qfc 'bash -i' /dev/null
+    // -q: quiet (suppress start/done messages)
+    // -f: flush output after each write (important for real-time terminal)
+    // -c: execute command
+    proc = spawn('script', ['-qfc', 'bash -i', '/dev/null'], {
       cwd: workDir,
       env: shellEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
