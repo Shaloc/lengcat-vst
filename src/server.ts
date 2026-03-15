@@ -262,7 +262,7 @@ function getOrCreateProxy(
     // ── HTTP response fixups ────────────────────────────────────────────────
     // Strip headers that would prevent VS Code from loading inside the
     // dashboard iframe.
-    proxy.on('proxyRes', (proxyRes: http.IncomingMessage, _proxyReq: http.IncomingMessage, res: http.ServerResponse | net.Socket) => {
+    proxy.on('proxyRes', (proxyRes: http.IncomingMessage, _req: http.IncomingMessage, res: http.ServerResponse | net.Socket) => {
       // X-Frame-Options: DENY/SAMEORIGIN blocks iframe embedding entirely.
       delete proxyRes.headers['x-frame-options'];
 
@@ -300,7 +300,15 @@ function getOrCreateProxy(
       proxyRes.headers['service-worker-allowed'] = '/';
 
       // ── leduo-patrol: inject content script into HTML responses ──────────
-      if (isLeduoPatrol && res instanceof http.ServerResponse) {
+      // selfHandleResponse is true for leduo-patrol proxies, so we must
+      // manually forward every response.  The proxyRes event only fires for
+      // HTTP requests (not WebSocket upgrades), so res is always a
+      // ServerResponse — the instanceof guard is a defensive type-check.
+      if (isLeduoPatrol) {
+        if (!(res instanceof http.ServerResponse)) {
+          proxyRes.resume(); // drain to prevent back-pressure
+          return;
+        }
         const ct = String(proxyRes.headers['content-type'] || '');
         if (ct.includes('text/html')) {
           const chunks: Buffer[] = [];
