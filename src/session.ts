@@ -114,6 +114,7 @@ export class SessionManager extends EventEmitter {
       entries = JSON.parse(fs.readFileSync(this._savePath, 'utf-8'));
       if (!Array.isArray(entries)) return 0;
     } catch {
+      // Invalid or corrupted persistence file — treat as empty.
       return 0;
     }
     const existing = this.list();
