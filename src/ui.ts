@@ -185,8 +185,9 @@ export function renderDashboard(): string {
       text-transform: uppercase; color: var(--c-accent);
       overflow: hidden; transition: opacity 0.15s;
     }
-    #sidebar.collapsed #sidebar-header h1 { opacity: 0; pointer-events: none; width: 0; }
+    #sidebar.collapsed #sidebar-header h1 { opacity: 0; pointer-events: none; width: 0; overflow: hidden; }
     #sidebar.collapsed #btn-new-session { display: none; }
+    #sidebar.collapsed #sidebar-header { justify-content: center; padding: 14px 4px 10px; }
 
     #btn-new-session {
       background: var(--c-accent); color: var(--c-on-accent);
@@ -223,9 +224,11 @@ export function renderDashboard(): string {
       transition: background 0.1s, color 0.1s;
     }
     #btn-cert-settings:hover { background: var(--c-overlay0); color: var(--c-text); }
+    #sidebar.collapsed #sidebar-footer { padding: 8px 4px; display: flex; justify-content: center; }
     #sidebar.collapsed #btn-cert-settings {
       width: 32px; height: 32px; padding: 0;
       justify-content: center; font-size: 16px;
+      border: none;
     }
     #sidebar.collapsed .btn-cert-label { display: none; }
 
@@ -234,7 +237,7 @@ export function renderDashboard(): string {
       margin-bottom: 4px; cursor: pointer;
       border: 1px solid transparent;
       display: flex; flex-direction: column; gap: 3px;
-      transition: background 0.1s;
+      transition: background 0.1s, border-color 0.1s;
     }
     .session-item:hover { background: var(--c-overlay0); }
     .session-item.active { border-color: var(--c-accent); background: var(--c-overlay0); }
@@ -250,10 +253,20 @@ export function renderDashboard(): string {
     /* Collapsed: only show the status dot, centred */
     #sidebar.collapsed .session-item {
       padding: 8px 0; align-items: center; border-color: transparent;
+      overflow: hidden; border-radius: 6px;
     }
+    #sidebar.collapsed .session-item.active {
+      background: var(--c-overlay0); border-color: transparent;
+      box-shadow: inset 3px 0 0 var(--c-accent);
+    }
+    #sidebar.collapsed .session-item-name {
+      justify-content: center;
+    }
+    #sidebar.collapsed .session-name-text,
     #sidebar.collapsed .session-item-name > *:not(.dot) { display: none; }
     #sidebar.collapsed .session-item-meta,
     #sidebar.collapsed .session-item-folder,
+    #sidebar.collapsed .session-item-error,
     #sidebar.collapsed .badge-exthost { display: none; }
 
     .dot {
@@ -392,7 +405,7 @@ export function renderDashboard(): string {
 <div id="sidebar">
   <div id="sidebar-header">
     <button id="btn-toggle-sidebar" title="Collapse sidebar">◀</button>
-    <h1>Sessions</h1>
+    <h1>lengcat-vst</h1>
     <button id="btn-new-session" title="New session">+</button>
   </div>
   <div id="session-list">
@@ -622,10 +635,13 @@ export function renderDashboard(): string {
         ? '<div class="session-item-error" title="' + escHtml(s.errorMessage) + '">⚠ ' + escHtml(s.errorMessage.length > 55 ? s.errorMessage.slice(0, 55) + '…' : s.errorMessage) + '</div>'
         : '';
 
+      // Set tooltip on the session item for collapsed sidebar
+      el.title = displaySessionType(s.type) + ' :' + s.port + ' — ' + s.pathPrefix + (s.folder ? '\\n' + s.folder : '');
+
       el.innerHTML =
         '<div class="session-item-name">' +
           '<span class="' + statusDotClass(s.status) + '"></span>' +
-          escHtml(displaySessionType(s.type) + ' :' + s.port) +
+          '<span class="session-name-text">' + escHtml(displaySessionType(s.type) + ' :' + s.port) + '</span>' +
           extBadge +
         '</div>' +
         '<div class="session-item-meta">' + escHtml(s.pathPrefix) + '</div>' +
