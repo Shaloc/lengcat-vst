@@ -170,6 +170,7 @@ export function renderDashboard(): string {
       overflow: hidden;
       transition: width 0.18s ease, min-width 0.18s ease;
       position: relative;
+      contain: layout style;
     }
     #sidebar.collapsed {
       width: 48px; min-width: 48px;
@@ -237,9 +238,9 @@ export function renderDashboard(): string {
       margin-bottom: 4px; cursor: pointer;
       border: 1px solid transparent;
       display: flex; flex-direction: column; gap: 3px;
-      transition: background 0.1s, border-color 0.1s;
+      transition: background 0.15s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.15s cubic-bezier(0.25, 1, 0.5, 1), transform 0.15s cubic-bezier(0.25, 1, 0.5, 1);
     }
-    .session-item:hover { background: var(--c-overlay0); }
+    .session-item:hover { background: var(--c-overlay0); transform: translateX(2px); }
     .session-item.active { border-color: var(--c-accent); background: var(--c-overlay0); }
     .session-item-name {
       font-size: 13px; font-weight: 500;
@@ -299,7 +300,9 @@ export function renderDashboard(): string {
     .btn {
       padding: 5px 13px; border-radius: 4px; border: none;
       cursor: pointer; font-size: 12px; font-weight: 500;
+      transition: background 0.15s cubic-bezier(0.25, 1, 0.5, 1), transform 0.1s cubic-bezier(0.25, 1, 0.5, 1);
     }
+    .btn:active { transform: scale(0.97); }
     .btn-primary   { background: var(--c-accent);   color: var(--c-on-accent); }
     .btn-primary:hover   { background: var(--c-accent-h); }
     .btn-danger    { background: var(--c-danger);   color: var(--c-on-accent); }
@@ -312,7 +315,7 @@ export function renderDashboard(): string {
       padding: 5px 8px; font-size: 15px; line-height: 1;
     }
 
-    #content-area { flex: 1; position: relative; overflow: hidden; }
+    #content-area { flex: 1; position: relative; overflow: hidden; contain: layout style; }
 
     /* Each session gets its own iframe stacked in #content-area.
        Inactive iframes use visibility:hidden (NOT display:none) so VS Code's
@@ -324,11 +327,13 @@ export function renderDashboard(): string {
       background: #fff;
     }
 
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     #welcome {
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       gap: 14px; color: var(--c-subtext1);
+      animation: fadeIn 0.3s cubic-bezier(0.25, 1, 0.5, 1);
     }
     #welcome h2 { font-size: 20px; color: var(--c-text); font-weight: 500; }
     #welcome p  { font-size: 13px; text-align: center; max-width: 320px; line-height: 1.6; }
@@ -339,13 +344,17 @@ export function renderDashboard(): string {
       background: rgba(0,0,0,0.55);
       display: flex; align-items: center; justify-content: center;
       z-index: 200;
+      opacity: 0; transition: opacity 0.2s cubic-bezier(0.25, 1, 0.5, 1);
     }
-    .modal-backdrop.hidden { display: none; }
+    .modal-backdrop:not(.hidden) { opacity: 1; }
+    .modal-backdrop.hidden { pointer-events: none; }
     .modal {
       background: var(--c-surface); border: 1px solid var(--c-overlay0);
       border-radius: 10px; padding: 24px; width: 400px;
       box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+      transform: scale(0.96) translateY(8px); transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
     }
+    .modal-backdrop:not(.hidden) .modal { transform: scale(1) translateY(0); }
     .modal h2 { font-size: 15px; font-weight: 600; margin-bottom: 18px; }
     .form-group { margin-bottom: 14px; }
     label { display: block; font-size: 11px; color: var(--c-accent); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -358,9 +367,11 @@ export function renderDashboard(): string {
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
     .form-hint { font-size: 11px; color: var(--c-subtext1); margin-top: 3px; }
 
+    @keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     #error-banner {
       padding: 9px 14px; background: var(--c-danger); color: var(--c-on-accent);
       font-size: 12px; font-weight: 500; display: none;
+      animation: slideDown 0.25s cubic-bezier(0.25, 1, 0.5, 1);
     }
 
     /* Persistent session-level error shown below the toolbar when a session
@@ -397,6 +408,19 @@ export function renderDashboard(): string {
     body.touch-mode .form-hint          { font-size: 12px; }
     body.touch-mode .modal              { padding: 28px 24px; }
     body.touch-mode .dot                { width: 11px; height: 11px; }
+
+    /* ── Focus-visible ───────────────────────────────────────── */
+    :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; border-radius: 4px; }
+    button:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+
+    /* ── Reduced motion ──────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -404,37 +428,38 @@ export function renderDashboard(): string {
 <!-- ── Sidebar ──────────────────────────────────────────── -->
 <div id="sidebar">
   <div id="sidebar-header">
-    <button id="btn-toggle-sidebar" title="Collapse sidebar">◀</button>
+    <button id="btn-toggle-sidebar" title="Collapse sidebar" aria-label="Toggle sidebar">◀</button>
     <h1>lengcat-vst</h1>
-    <button id="btn-new-session" title="New session">+</button>
+    <button id="btn-new-session" title="New session" aria-label="Create new session">+</button>
   </div>
   <div id="session-list">
     <div id="no-sessions" style="padding:12px 8px;font-size:12px;color:var(--c-subtext1);">
-      No sessions yet. Click + to add one.
+      No sessions yet — click <strong>＋</strong> above to create your first session.
     </div>
   </div>
   <div id="sidebar-footer">
-    <button id="btn-cert-settings" title="Certificate settings">⚙ <span class="btn-cert-label">Certificate</span></button>
+    <button id="btn-cert-settings" title="Certificate settings" aria-label="Certificate settings">⚙ <span class="btn-cert-label">Certificate</span></button>
   </div>
 </div>
 
 <!-- ── Main ─────────────────────────────────────────────── -->
 <div id="main">
-  <div id="error-banner"></div>
+  <div id="error-banner" role="alert"></div>
   <div id="toolbar">
     <span id="toolbar-title">No session selected</span>
     <button class="btn btn-primary"  id="btn-launch" style="display:none">Launch</button>
     <button class="btn btn-danger"   id="btn-stop"   style="display:none">Stop</button>
     <button class="btn btn-secondary" id="btn-open-new-tab" style="display:none" title="Open in new tab">↗ New tab</button>
     <button class="btn btn-danger"   id="btn-remove" style="display:none">Remove</button>
-    <button class="btn btn-secondary btn-icon" id="btn-toggle-theme"  title="Switch to light mode">☀️</button>
-    <button class="btn btn-secondary btn-icon" id="btn-toggle-touch"  title="Enable touch mode">👆</button>
+    <button class="btn btn-secondary btn-icon" id="btn-toggle-theme"  title="Switch to light mode" aria-label="Toggle theme">☀️</button>
+    <button class="btn btn-secondary btn-icon" id="btn-toggle-touch"  title="Enable touch mode" aria-label="Toggle touch mode">👆</button>
   </div>
-  <div id="session-error-banner"></div>
+  <div id="session-error-banner" role="alert"></div>
   <div id="content-area">
     <div id="welcome">
+      <div style="font-size:48px;opacity:0.3;">🖥️</div>
       <h2>lengcat-vst</h2>
-      <p>Select a session from the sidebar to view it here, or create a new one with the <strong>+</strong> button.</p>
+      <p>Choose a session from the sidebar, or press <strong>＋</strong> to create one.</p>
     </div>
     <!-- Session iframes are created dynamically by JS (one per session id).
          id="session-frame" is kept as a sentinel so tests and tooling can
@@ -445,7 +470,7 @@ export function renderDashboard(): string {
 
 <!-- ── New-session modal ─────────────────────────────────── -->
 <div class="modal-backdrop hidden" id="modal-backdrop">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>New Session</h2>
     <div class="form-group">
       <label>Backend type</label>
@@ -497,12 +522,12 @@ export function renderDashboard(): string {
 
 <!-- ── Launch-with-folder modal ──────────────────────────── -->
 <div class="modal-backdrop hidden" id="launch-modal-backdrop">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true">
     <h2>Launch Session</h2>
     <div class="form-group">
       <label>Workspace / folder (optional)</label>
       <input type="text" id="launch-folder" placeholder="/home/user/my-project" />
-      <div class="form-hint">Leave empty to use the folder configured when the session was created, or enter a path to override it for this launch.</div>
+      <div class="form-hint">Leave empty to use the default folder, or enter a path to override.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" id="btn-cancel-launch-modal">Cancel</button>
@@ -513,7 +538,7 @@ export function renderDashboard(): string {
 
 <!-- ── Certificate settings modal ───────────────────────── -->
 <div class="modal-backdrop hidden" id="cert-modal-backdrop">
-  <div class="modal" style="width:460px">
+  <div class="modal" style="width:460px" role="dialog" aria-modal="true">
     <h2>⚙ Certificate Settings</h2>
     <div id="cert-modal-body">
       <!-- Populated by JS when the modal opens -->
@@ -734,7 +759,7 @@ export function renderDashboard(): string {
     if (!s || s.status !== 'running') {
       welcome.style.display = 'flex';
       welcome.querySelector('p').textContent =
-        s ? 'Session is ' + s.status + '. Use Launch to start it.' :
+        s ? 'Session is ' + s.status + '. Press Launch to start it.' :
             'Select a session or create a new one.';
       return;
     }
@@ -788,7 +813,7 @@ export function renderDashboard(): string {
   }
 
   async function removeSession(id) {
-    if (!confirm('Remove this session?')) return;
+    if (!confirm('Remove this session? This cannot be undone.')) return;
     await apiFetch('/api/sessions/' + id, { method: 'DELETE' });
     if (iframePool.has(id)) {
       iframePool.get(id).remove();
@@ -944,6 +969,15 @@ export function renderDashboard(): string {
   document.getElementById('btn-cert-settings').addEventListener('click', openCertModal);
   document.getElementById('btn-close-cert-modal').addEventListener('click', closeCertModal);
   certModalBackdrop.addEventListener('click', e => { if (e.target === certModalBackdrop) closeCertModal(); });
+
+  // ── Keyboard: Escape closes modals ──────────────────────────
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      if (!modalBackdrop.classList.contains('hidden')) closeNewModal();
+      if (!launchModalBackdrop.classList.contains('hidden')) closeLaunchModal();
+      if (!certModalBackdrop.classList.contains('hidden')) closeCertModal();
+    }
+  });
 
   // ── Polling ──────────────────────────────────────────────────
   function startPolling() {
