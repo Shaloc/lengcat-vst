@@ -153,6 +153,17 @@ describe('renderDashboard', () => {
     expect(html).toContain('maxTouchPoints');
     expect(html).toContain('ontouchstart');
   });
+
+  it('includes an SVG favicon', () => {
+    expect(html).toContain('rel="icon"');
+    expect(html).toContain('type="image/svg+xml"');
+  });
+
+  it('uses inline SVG icons instead of emoji for toolbar buttons', () => {
+    expect(html).toContain('class="icon');
+    expect(html).toContain('<svg');
+    expect(html).toContain('viewBox=');
+  });
 });
 
 describe('renderLoginPage', () => {
@@ -195,5 +206,11 @@ describe('renderLoginPage', () => {
     const html = renderLoginPage(false, 'https://evil.example.com');
     // Falls back to /
     expect(html).toContain('value="/"');
+  });
+
+  it('includes an SVG favicon', () => {
+    const html = renderLoginPage();
+    expect(html).toContain('rel="icon"');
+    expect(html).toContain('type="image/svg+xml"');
   });
 });

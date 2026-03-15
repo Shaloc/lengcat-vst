@@ -38,6 +38,7 @@ export function renderLoginPage(error = false, next = '/'): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2389b4fa'/%3E%3Cstop offset='100%25' stop-color='%23cba6f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='7' fill='%231e1e2e'/%3E%3Cpath d='M8 10h16v2H8zm0 5h12v2H8zm0 5h14v2H8z' fill='url(%23g)'/%3E%3C/svg%3E" />
   <title>lengcat-vst — Login</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -113,6 +114,7 @@ export function renderDashboard(): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2389b4fa'/%3E%3Cstop offset='100%25' stop-color='%23cba6f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='7' fill='%231e1e2e'/%3E%3Cpath d='M8 10h16v2H8zm0 5h12v2H8zm0 5h14v2H8z' fill='url(%23g)'/%3E%3C/svg%3E" />
   <title>lengcat-vst — Session Manager</title>
   <style>
     /* ── CSS custom properties (dark theme defaults — Catppuccin Mocha) ── */
@@ -310,9 +312,19 @@ export function renderDashboard(): string {
     .btn-secondary { background: var(--c-overlay0); color: var(--c-text); }
     .btn-secondary:hover { background: var(--c-overlay1); }
 
+    /* ── Inline SVG icons ───────────────────────────────── */
+    .icon {
+      display: inline-block; width: 1em; height: 1em;
+      vertical-align: -0.125em; fill: currentColor;
+      flex-shrink: 0;
+    }
+    .icon-lg { width: 1.25em; height: 1.25em; }
+    .icon-welcome { width: 48px; height: 48px; opacity: 0.3; }
+
     /* Icon-only toolbar buttons (theme / touch toggles) */
     .btn-icon {
       padding: 5px 8px; font-size: 15px; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
     }
 
     #content-area { flex: 1; position: relative; overflow: hidden; contain: layout style; }
@@ -428,7 +440,7 @@ export function renderDashboard(): string {
 <!-- ── Sidebar ──────────────────────────────────────────── -->
 <div id="sidebar">
   <div id="sidebar-header">
-    <button id="btn-toggle-sidebar" title="Collapse sidebar" aria-label="Toggle sidebar">◀</button>
+    <button id="btn-toggle-sidebar" title="Collapse sidebar" aria-label="Toggle sidebar"><svg class="icon" viewBox="0 0 24 24"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></button>
     <h1>lengcat-vst</h1>
     <button id="btn-new-session" title="New session" aria-label="Create new session">+</button>
   </div>
@@ -438,7 +450,7 @@ export function renderDashboard(): string {
     </div>
   </div>
   <div id="sidebar-footer">
-    <button id="btn-cert-settings" title="Certificate settings" aria-label="Certificate settings">⚙ <span class="btn-cert-label">Certificate</span></button>
+    <button id="btn-cert-settings" title="Certificate settings" aria-label="Certificate settings"><svg class="icon" viewBox="0 0 24 24"><path d="M19.14 12.94a7.014 7.014 0 0 0 .06-.94c0-.33-.02-.65-.07-.97l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.012 7.012 0 0 0-1.67-.97l-.38-2.65A.488.488 0 0 0 13.72 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.67.97l-2.49-1a.486.486 0 0 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.97s.02.64.07.97l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.38 1.06.72 1.67.97l.38 2.65c.05.24.26.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.67-.97l2.49 1c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM11.72 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg> <span class="btn-cert-label">Certificate</span></button>
   </div>
 </div>
 
@@ -449,15 +461,15 @@ export function renderDashboard(): string {
     <span id="toolbar-title">No session selected</span>
     <button class="btn btn-primary"  id="btn-launch" style="display:none">Launch</button>
     <button class="btn btn-danger"   id="btn-stop"   style="display:none">Stop</button>
-    <button class="btn btn-secondary" id="btn-open-new-tab" style="display:none" title="Open in new tab">↗ New tab</button>
+    <button class="btn btn-secondary" id="btn-open-new-tab" style="display:none" title="Open in new tab"><svg class="icon" viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7ZM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7Z"/></svg> New tab</button>
     <button class="btn btn-danger"   id="btn-remove" style="display:none">Remove</button>
-    <button class="btn btn-secondary btn-icon" id="btn-toggle-theme"  title="Switch to light mode" aria-label="Toggle theme">☀️</button>
-    <button class="btn btn-secondary btn-icon" id="btn-toggle-touch"  title="Enable touch mode" aria-label="Toggle touch mode">👆</button>
+    <button class="btn btn-secondary btn-icon" id="btn-toggle-theme"  title="Switch to light mode" aria-label="Toggle theme"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0-3a1 1 0 0 0 1-1V1a1 1 0 1 0-2 0v2a1 1 0 0 0 1 1Zm0 18a1 1 0 0 0-1 1v2a1 1 0 1 0 2 0v-2a1 1 0 0 0-1-1ZM5.64 7.05 4.22 5.64a1 1 0 0 1 1.41-1.41l1.41 1.41a1 1 0 1 1-1.41 1.41Zm12.73 9.9a1 1 0 0 0-1.41 1.41l1.41 1.41a1 1 0 0 0 1.41-1.41l-1.41-1.41ZM4 12a1 1 0 0 0-1-1H1a1 1 0 1 0 0 2h2a1 1 0 0 0 1-1Zm18 0a1 1 0 0 0 1 1h2a1 1 0 1 0 0-2h-2a1 1 0 0 0-1 1ZM5.64 16.95a1 1 0 0 0-1.41 0l-1.41 1.41a1 1 0 0 0 1.41 1.41l1.41-1.41a1 1 0 0 0 0-1.41Zm12.73-9.9a1 1 0 0 0 1.41 0l1.41-1.41a1 1 0 0 0-1.41-1.41l-1.41 1.41a1 1 0 0 0 0 1.41Z"/></svg></button>
+    <button class="btn btn-secondary btn-icon" id="btn-toggle-touch"  title="Enable touch mode" aria-label="Toggle touch mode"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74c1.21-.81 2-2.18 2-3.74a4.5 4.5 0 0 0-9 0c0 1.56.79 2.93 2 3.74Zm9.84 4.63-4.54-2.26c-.17-.07-.35-.11-.54-.11H13V7.5a1.5 1.5 0 0 0-3 0v10.74l-3.43-.72a.99.99 0 0 0-.84.24l-.74.74 4.17 4.17c.28.28.66.44 1.06.44h6.16c.71 0 1.32-.54 1.41-1.25l.51-4.5c.07-.65-.21-1.29-.79-1.59l-.67-.33Z"/></svg></button>
   </div>
   <div id="session-error-banner" role="alert"></div>
   <div id="content-area">
     <div id="welcome">
-      <div style="font-size:48px;opacity:0.3;">🖥️</div>
+      <svg class="icon-welcome" viewBox="0 0 24 24" fill="currentColor"><path d="M21 2H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7l-2 3v1h8v-1l-2-3h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Zm0 12H3V4h18v10Z"/></svg>
       <h2>lengcat-vst</h2>
       <p>Choose a session from the sidebar, or press <strong>＋</strong> to create one.</p>
     </div>
@@ -539,7 +551,7 @@ export function renderDashboard(): string {
 <!-- ── Certificate settings modal ───────────────────────── -->
 <div class="modal-backdrop hidden" id="cert-modal-backdrop">
   <div class="modal" style="width:460px" role="dialog" aria-modal="true">
-    <h2>⚙ Certificate Settings</h2>
+    <h2><svg class="icon" viewBox="0 0 24 24"><path d="M19.14 12.94a7.014 7.014 0 0 0 .06-.94c0-.33-.02-.65-.07-.97l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.012 7.012 0 0 0-1.67-.97l-.38-2.65A.488.488 0 0 0 13.72 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.67.97l-2.49-1a.486.486 0 0 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.97s.02.64.07.97l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.38 1.06.72 1.67.97l.38 2.65c.05.24.26.42.49.42h4c.24 0 .44-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.67-.97l2.49 1c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM11.72 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg> Certificate Settings</h2>
     <div id="cert-modal-body">
       <!-- Populated by JS when the modal opens -->
     </div>
@@ -654,10 +666,10 @@ export function renderDashboard(): string {
         ? '<span class="badge-exthost">ext-host</span>'
         : '';
       const folderLine = s.folder
-        ? '<div class="session-item-folder" title="' + escHtml(s.folder) + '">📁 ' + escHtml(s.folder) + '</div>'
+        ? '<div class="session-item-folder" title="' + escHtml(s.folder) + '"><svg class="icon" viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z"/></svg> ' + escHtml(s.folder) + '</div>'
         : '';
       const errorLine = (s.status === 'error' && s.errorMessage)
-        ? '<div class="session-item-error" title="' + escHtml(s.errorMessage) + '">⚠ ' + escHtml(s.errorMessage.length > 55 ? s.errorMessage.slice(0, 55) + '…' : s.errorMessage) + '</div>'
+        ? '<div class="session-item-error" title="' + escHtml(s.errorMessage) + '"><svg class="icon" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21Zm12-3h-2v-2h2v2Zm0-4h-2v-4h2v4Z"/></svg> ' + escHtml(s.errorMessage.length > 55 ? s.errorMessage.slice(0, 55) + '…' : s.errorMessage) + '</div>'
         : '';
 
       // Set tooltip on the session item for collapsed sidebar
@@ -698,7 +710,7 @@ export function renderDashboard(): string {
     // Show a persistent error banner when a launch has failed so the user
     // can see exactly why (e.g. "Port 8000 already in use by session s1").
     if (s.status === 'error' && s.errorMessage) {
-      sessionErrorBanner.textContent = '⚠ Launch error: ' + s.errorMessage;
+      sessionErrorBanner.textContent = 'Launch error: ' + s.errorMessage;
       sessionErrorBanner.style.display = 'block';
     } else {
       sessionErrorBanner.style.display = 'none';
@@ -939,7 +951,7 @@ export function renderDashboard(): string {
         'Service Worker SSL errors.' +
       '</p>' +
       '<div style="margin-bottom:14px;">' +
-        '<button class="btn btn-primary" id="btn-download-cert-action">⬇ Export Certificate (PEM)</button>' +
+        '<button class="btn btn-primary" id="btn-download-cert-action"><svg class="icon" viewBox="0 0 24 24" style="fill:currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7ZM5 18v2h14v-2H5Z"/></svg> Export Certificate (PEM)</button>' +
       '</div>' +
       '<div style="font-size:11px;color:#6c7086;line-height:1.9;">' +
         '<strong style="color:#89b4fa;">Linux — Debian/Ubuntu (system-wide):</strong><br>' +
@@ -990,11 +1002,11 @@ export function renderDashboard(): string {
   function setSidebarCollapsed(collapsed) {
     if (collapsed) {
       sidebar.classList.add('collapsed');
-      btnToggle.textContent = '▶';
+      btnToggle.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>';
       btnToggle.title = 'Expand sidebar';
     } else {
       sidebar.classList.remove('collapsed');
-      btnToggle.textContent = '◀';
+      btnToggle.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>';
       btnToggle.title = 'Collapse sidebar';
     }
     try { localStorage.setItem('sidebar-collapsed', String(collapsed)); } catch (_) {}
@@ -1011,7 +1023,9 @@ export function renderDashboard(): string {
   const btnToggleTheme = document.getElementById('btn-toggle-theme');
   function setTheme(light) {
     document.body.classList.toggle('theme-light', light);
-    btnToggleTheme.textContent = light ? '🌙' : '☀️';
+    btnToggleTheme.innerHTML = light
+      ? '<svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1Z"/></svg>'
+      : '<svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0-3a1 1 0 0 0 1-1V1a1 1 0 1 0-2 0v2a1 1 0 0 0 1 1Zm0 18a1 1 0 0 0-1 1v2a1 1 0 1 0 2 0v-2a1 1 0 0 0-1-1ZM5.64 7.05 4.22 5.64a1 1 0 0 1 1.41-1.41l1.41 1.41a1 1 0 1 1-1.41 1.41Zm12.73 9.9a1 1 0 0 0-1.41 1.41l1.41 1.41a1 1 0 0 0 1.41-1.41l-1.41-1.41ZM4 12a1 1 0 0 0-1-1H1a1 1 0 1 0 0 2h2a1 1 0 0 0 1-1Zm18 0a1 1 0 0 0 1 1h2a1 1 0 1 0 0-2h-2a1 1 0 0 0-1 1ZM5.64 16.95a1 1 0 0 0-1.41 0l-1.41 1.41a1 1 0 0 0 1.41 1.41l1.41-1.41a1 1 0 0 0 0-1.41Zm12.73-9.9a1 1 0 0 0 1.41 0l1.41-1.41a1 1 0 0 0-1.41-1.41l-1.41 1.41a1 1 0 0 0 0 1.41Z"/></svg>';
     btnToggleTheme.title = light ? 'Switch to dark mode' : 'Switch to light mode';
     try { localStorage.setItem('theme-light', String(light)); } catch (_) {}
   }
