@@ -16,13 +16,28 @@ import * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
 import * as crypto from 'crypto';
+import * as nodePath from 'path';
+import * as nodeFs from 'fs';
+import * as os from 'os';
+import { spawnSync } from 'child_process';
 import httpProxy from 'http-proxy';
+import { WebSocketServer, WebSocket } from 'ws';
 import { BackendConfig, BackendType, TunnelConfig, buildBackendConfig } from './config';
 import { backendOrigin } from './backends';
 import { createAuthMiddleware } from './auth';
 import { SessionManager } from './session';
 import { renderDashboard, renderLoginPage } from './ui';
 import type { TlsCredentials } from './tls';
+import { getOnboardingStatus, DEFAULT_LEDUO_PATROL_DIR } from './onboarding';
+import {
+  getDownloadProgress,
+  cancelCodeServerDownload,
+  fetchLatestCodeServerVersion,
+  installCodeServer,
+  CODE_SERVER_CACHE_DIR,
+  CODE_SERVER_VERSION_FILE,
+} from './download';
+import { createTerminalSession, TerminalSession } from './terminal';
 
 export interface TunnelServer {
   /** The underlying Node.js HTTP (or HTTPS) server. */
@@ -625,6 +640,196 @@ async function handleUiRequest(
     return;
   }
 
+  // ── Onboarding API ──────────────────────────────────────────────────────────
+
+  // Onboarding status — what's installed/missing
+  if (method === 'GET' && path === '/api/onboarding/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getOnboardingStatus()));
+    return;
+  }
+
+  // Download progress (polled by the frontend during code-server download)
+  if (method === 'GET' && path === '/api/onboarding/download-progress') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getDownloadProgress()));
+    return;
+  }
+
+  // Trigger code-server auto-download (async — returns 202 immediately)
+  if (method === 'POST' && path === '/api/onboarding/download-code-server') {
+    fetchLatestCodeServerVersion()
+      .then((version) =>
+        installCodeServer(version, (msg) => {
+          process.stderr.write(`[lengcat-vst] ${msg}\n`);
+        })
+      )
+      .catch((err: Error) => {
+        process.stderr.write(
+          `[lengcat-vst] code-server download failed: ${err.message}\n`
+        );
+      });
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: 'Download started' }));
+    return;
+  }
+
+  // Cancel ongoing code-server download
+  if (method === 'POST' && path === '/api/onboarding/cancel-download') {
+    cancelCodeServerDownload();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: 'Download cancelled' }));
+    return;
+  }
+
+  // Upload code-server tarball — accepts raw binary body
+  // Query: ?filename=code-server-<version>-<platform>-<arch>.tar.gz
+  if (method === 'POST' && path === '/api/onboarding/upload-code-server') {
+    const urlObj = new URL(req.url ?? '', 'http://localhost');
+    const filename = urlObj.searchParams.get('filename') ?? '';
+
+    if (!filename.endsWith('.tar.gz') || !filename.startsWith('code-server-')) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Filename must match code-server-<version>-<platform>-<arch>.tar.gz' }));
+      return;
+    }
+    // Prevent path traversal
+    const basename = nodePath.basename(filename);
+    if (basename !== filename) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid filename' }));
+      return;
+    }
+
+    nodeFs.mkdirSync(CODE_SERVER_CACHE_DIR, { recursive: true });
+    const dest = nodePath.join(CODE_SERVER_CACHE_DIR, basename);
+    const ws = nodeFs.createWriteStream(dest);
+
+    req.pipe(ws);
+    ws.on('finish', () => {
+      try {
+        const tarResult = spawnSync('tar', ['-xzf', dest, '-C', CODE_SERVER_CACHE_DIR], {
+          stdio: 'pipe',
+        });
+        if (tarResult.status !== 0) {
+          throw new Error(tarResult.stderr?.toString() || 'tar extraction failed');
+        }
+
+        // Detect version from the extracted directory name.
+        // The tarball contains a directory named code-server-<version>-<platform>-<arch>.
+        const dirName = basename.replace(/\.tar\.gz$/, '');
+        const binPath = nodePath.join(CODE_SERVER_CACHE_DIR, dirName, 'bin', 'code-server');
+        if (nodeFs.existsSync(binPath)) {
+          nodeFs.chmodSync(binPath, 0o755);
+          // Extract version from directory name: code-server-<version>-<platform>-<arch>
+          const parts = dirName.split('-');
+          // parts = ['code', 'server', version, platform, arch]
+          const version = parts.length >= 3 ? parts[2] : 'unknown';
+          nodeFs.writeFileSync(CODE_SERVER_VERSION_FILE, version, 'utf-8');
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'Uploaded and installed successfully' }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Extraction failed: ${(err as Error).message}` }));
+      }
+    });
+    ws.on('error', (err) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Upload leduo-patrol source tarball — accepts raw binary body
+  // Extracts to DEFAULT_LEDUO_PATROL_DIR, handling single-root-directory tarballs.
+  if (method === 'POST' && path === '/api/onboarding/upload-leduo-patrol') {
+    const leduoDir =
+      process.env.LEDUO_PATROL_DIR ?? DEFAULT_LEDUO_PATROL_DIR;
+    const tmpFile = nodePath.join(
+      os.tmpdir(),
+      `lvst-leduo-upload-${Date.now()}.tar.gz`
+    );
+    const tmpExtractDir = nodePath.join(
+      os.tmpdir(),
+      `lvst-leduo-extract-${Date.now()}`
+    );
+
+    const ws = nodeFs.createWriteStream(tmpFile);
+    req.pipe(ws);
+    ws.on('finish', () => {
+      try {
+        nodeFs.mkdirSync(tmpExtractDir, { recursive: true });
+        const tarResult = spawnSync('tar', ['-xzf', tmpFile, '-C', tmpExtractDir], {
+          stdio: 'pipe',
+        });
+        if (tarResult.status !== 0) {
+          throw new Error(tarResult.stderr?.toString() || 'tar extraction failed');
+        }
+
+        // If tarball has a single root directory, use its contents.
+        const entries = nodeFs.readdirSync(tmpExtractDir);
+        const sourceDir =
+          entries.length === 1 &&
+          nodeFs.statSync(nodePath.join(tmpExtractDir, entries[0])).isDirectory()
+            ? nodePath.join(tmpExtractDir, entries[0])
+            : tmpExtractDir;
+
+        // Copy to the leduo-patrol directory using Node.js native APIs.
+        nodeFs.mkdirSync(leduoDir, { recursive: true });
+        nodeFs.cpSync(sourceDir, leduoDir, { recursive: true, force: true });
+
+        // Run npm install if package.json exists
+        let npmInstalled = false;
+        if (nodeFs.existsSync(nodePath.join(leduoDir, 'package.json'))) {
+          try {
+            const npmResult = spawnSync('npm', ['install', '--production'], {
+              cwd: leduoDir,
+              timeout: 120_000,
+              stdio: 'pipe',
+            });
+            npmInstalled = npmResult.status === 0;
+          } catch {
+            // npm install failure is non-fatal; user can retry via terminal
+          }
+        }
+
+        // Cleanup temp files using Node.js native APIs
+        try {
+          nodeFs.unlinkSync(tmpFile);
+          nodeFs.rmSync(tmpExtractDir, { recursive: true, force: true });
+        } catch { /* ignore */ }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            message: 'Uploaded and extracted successfully',
+            dir: leduoDir,
+            npmInstalled,
+          })
+        );
+      } catch (err) {
+        // Cleanup on error
+        try { nodeFs.unlinkSync(tmpFile); } catch { /* ignore */ }
+        try { nodeFs.rmSync(tmpExtractDir, { recursive: true, force: true }); } catch { /* ignore */ }
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Upload failed: ${(err as Error).message}` }));
+        }
+      }
+    });
+    ws.on('error', (err) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found.' }));
 }
@@ -657,6 +862,41 @@ export function createTunnelServer(
   // Per-origin proxy cache — proxies are created on first use so that
   // sessions added at runtime (via the dashboard) are handled automatically.
   const proxyCache = new Map<string, httpProxy>();
+
+  // ── WebSocket terminal (onboarding shell) ─────────────────────────────────
+  const terminalWss = new WebSocketServer({ noServer: true });
+  const activeTerminals = new Set<TerminalSession>();
+
+  function handleTerminalUpgrade(
+    req: http.IncomingMessage,
+    socket: net.Socket,
+    head: Buffer
+  ): void {
+    terminalWss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+      const term = createTerminalSession();
+      activeTerminals.add(term);
+
+      term.onData((data: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
+      });
+      term.onExit((code: number | null) => {
+        activeTerminals.delete(term);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'exit', code }));
+          ws.close();
+        }
+      });
+      ws.on('message', (data: Buffer | string) => {
+        term.write(data.toString());
+      });
+      ws.on('close', () => {
+        activeTerminals.delete(term);
+        term.kill();
+      });
+    });
+  }
 
   const authMiddleware =
     config.auth && config.proxySecret
@@ -713,7 +953,8 @@ export function createTunnelServer(
       url === '/' ||
       url === '/_ui' || url === '/_ui/' || url.startsWith('/_ui/') ||
       rawPath === '/api/sessions' || rawPath.startsWith('/api/sessions/') ||
-      rawPath === '/api/tls/cert'
+      rawPath === '/api/tls/cert' ||
+      rawPath.startsWith('/api/onboarding/')
     )) {
       void handleUiRequest(req, res, sessionMgr, tls);
       return;
@@ -786,10 +1027,17 @@ export function createTunnelServer(
       return;
     }
 
+    // ── Terminal WebSocket (onboarding shell) ──────────────────────────────
+    // Route /api/terminal WebSocket upgrades to the terminal handler.
+    const wsRawPath = url.split('?')[0];
+    if (sessionMgr && wsRawPath === '/api/terminal') {
+      handleTerminalUpgrade(req, socket, head);
+      return;
+    }
+
     // Block WS upgrades to the internal dashboard / session-management paths
     // (they have no WebSocket API).  Other /api/* paths belong to the backend
     // and must be proxied through, not blocked.
-    const wsRawPath = url.split('?')[0];
     if (sessionMgr && (
       url === '/' ||
       url.startsWith('/_ui/') ||
@@ -847,6 +1095,13 @@ export function createTunnelServer(
     },
     close(): Promise<void> {
       return new Promise((resolve, reject) => {
+        // Kill any active terminal sessions.
+        for (const term of activeTerminals) {
+          term.kill();
+        }
+        activeTerminals.clear();
+        terminalWss.close();
+
         for (const proxy of proxyCache.values()) {
           proxy.close();
         }

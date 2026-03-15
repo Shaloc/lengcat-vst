@@ -173,6 +173,68 @@ describe('renderDashboard', () => {
   it('calls selectSession after open-folder API response', () => {
     expect(html).toContain('selectSession(session.id)');
   });
+
+  // ── Onboarding overlay tests ──────────────────────────────────────────
+  it('contains the onboarding overlay element', () => {
+    expect(html).toContain('id="onboarding-overlay"');
+  });
+
+  it('contains onboarding step elements for code-server and leduo-patrol', () => {
+    expect(html).toContain('id="ob-step-cs"');
+    expect(html).toContain('id="ob-step-lp"');
+  });
+
+  it('contains the onboarding terminal container', () => {
+    expect(html).toContain('id="ob-term-container"');
+  });
+
+  it('contains the skip onboarding button', () => {
+    expect(html).toContain('id="btn-skip-onboarding"');
+  });
+
+  it('contains the continue button in onboarding footer', () => {
+    expect(html).toContain('id="btn-continue-onboarding"');
+  });
+
+  it('references the onboarding status API endpoint', () => {
+    expect(html).toContain('/api/onboarding/status');
+  });
+
+  it('references the download progress API endpoint', () => {
+    expect(html).toContain('/api/onboarding/download-progress');
+  });
+
+  it('contains upload zones for code-server and leduo-patrol', () => {
+    expect(html).toContain('id="ob-cs-upload"');
+    expect(html).toContain('id="ob-lp-upload"');
+  });
+
+  it('contains file inputs for tarball uploads', () => {
+    expect(html).toContain('id="ob-cs-file"');
+    expect(html).toContain('id="ob-lp-file"');
+  });
+
+  it('references the upload API endpoints', () => {
+    expect(html).toContain('/api/onboarding/upload-code-server');
+    expect(html).toContain('/api/onboarding/upload-leduo-patrol');
+  });
+
+  it('references the cancel download API endpoint', () => {
+    expect(html).toContain('/api/onboarding/cancel-download');
+  });
+
+  it('loads xterm.js from CDN for the terminal', () => {
+    expect(html).toContain('xterm');
+    expect(html).toContain('cdn.jsdelivr.net');
+  });
+
+  it('references the WebSocket terminal API path', () => {
+    expect(html).toContain('/api/terminal');
+  });
+
+  it('persists onboarding-skipped state in localStorage', () => {
+    expect(html).toContain('onboarding-skipped');
+  });
 });
 
 describe('renderLoginPage', () => {

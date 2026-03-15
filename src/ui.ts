@@ -433,7 +433,121 @@ export function renderDashboard(): string {
         transition-duration: 0.01ms !important;
       }
     }
+
+    /* ── Onboarding overlay ────────────────────────────────── */
+    #onboarding-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: var(--c-base);
+      display: none; flex-direction: column;
+      overflow: hidden;
+    }
+    #onboarding-overlay.visible { display: flex; }
+    .ob-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--c-overlay0);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .ob-header h1 { font-size: 15px; font-weight: 600; color: var(--c-accent); letter-spacing: 0.06em; }
+    .ob-content {
+      flex: 1; overflow-y: auto; padding: 24px;
+      display: flex; flex-direction: column; gap: 16px;
+      max-width: 800px; margin: 0 auto; width: 100%;
+    }
+    .ob-welcome { font-size: 13px; color: var(--c-subtext0); line-height: 1.6; }
+    .ob-step {
+      background: var(--c-surface);
+      border: 1px solid var(--c-overlay0);
+      border-radius: 8px; overflow: hidden;
+    }
+    .ob-step-header {
+      padding: 12px 16px;
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; user-select: none;
+    }
+    .ob-step-header:hover { background: var(--c-overlay0); }
+    .ob-step-num {
+      width: 24px; height: 24px; border-radius: 50%;
+      background: var(--c-overlay0); color: var(--c-subtext0);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; flex-shrink: 0;
+    }
+    .ob-step.ready .ob-step-num { background: var(--c-green); color: var(--c-base); }
+    .ob-step-title { font-size: 14px; font-weight: 500; flex: 1; }
+    .ob-step-badge {
+      font-size: 11px; font-weight: 500; padding: 2px 8px;
+      border-radius: 10px;
+    }
+    .ob-badge-ready { background: rgba(166,227,161,0.15); color: var(--c-green); }
+    .ob-badge-missing { background: rgba(249,226,175,0.15); color: var(--c-yellow); }
+    .ob-badge-downloading { background: rgba(137,180,250,0.15); color: var(--c-accent); }
+    .ob-step-body {
+      padding: 0 16px 16px;
+      font-size: 13px; color: var(--c-subtext0); line-height: 1.6;
+    }
+    .ob-step.ready .ob-step-body { display: none; }
+    .ob-code {
+      background: var(--c-overlay0); border: 1px solid var(--c-overlay1);
+      border-radius: 5px; padding: 10px 12px;
+      font-family: monospace; font-size: 12px; color: var(--c-text);
+      white-space: pre-wrap; word-break: break-all;
+      margin: 8px 0; overflow-x: auto;
+    }
+    .ob-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+    .ob-progress-bar {
+      width: 100%; height: 6px;
+      background: var(--c-overlay0); border-radius: 3px;
+      overflow: hidden; margin: 8px 0;
+    }
+    .ob-progress-fill {
+      height: 100%; background: var(--c-accent);
+      border-radius: 3px; transition: width 0.3s ease;
+    }
+    .ob-progress-text { font-size: 11px; color: var(--c-subtext1); }
+    .ob-upload-zone {
+      border: 2px dashed var(--c-overlay1); border-radius: 6px;
+      padding: 16px; text-align: center;
+      color: var(--c-subtext1); font-size: 12px;
+      margin-top: 8px; cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .ob-upload-zone:hover { border-color: var(--c-accent); background: rgba(137,180,250,0.05); }
+    .ob-upload-zone.dragover { border-color: var(--c-accent); background: rgba(137,180,250,0.1); }
+    .ob-upload-zone input[type=file] { display: none; }
+    .ob-hint { font-size: 11px; color: var(--c-subtext1); margin-top: 6px; }
+    .ob-section-title { font-size: 12px; font-weight: 600; color: var(--c-accent); margin-top: 12px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .ob-terminal-wrap {
+      border-top: 1px solid var(--c-overlay0);
+      display: flex; flex-direction: column;
+      flex-shrink: 0;
+      height: 260px; min-height: 100px;
+      transition: height 0.2s ease;
+    }
+    .ob-terminal-wrap.collapsed { height: 36px; min-height: 36px; overflow: hidden; }
+    .ob-terminal-header {
+      padding: 6px 16px;
+      background: var(--c-surface);
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none; flex-shrink: 0;
+      border-bottom: 1px solid var(--c-overlay0);
+    }
+    .ob-terminal-header span { font-size: 12px; font-weight: 500; color: var(--c-subtext0); }
+    #ob-term-container { flex: 1; overflow: hidden; background: #000; }
+    .ob-footer {
+      padding: 12px 24px;
+      border-top: 1px solid var(--c-overlay0);
+      display: flex; justify-content: flex-end; gap: 8px;
+      flex-shrink: 0;
+    }
+    .ob-xterm-fallback {
+      width: 100%; height: 100%;
+      background: #1a1b26; color: #c0caf5;
+      border: none; resize: none; outline: none;
+      font-family: monospace; font-size: 13px;
+      padding: 8px 12px;
+    }
   </style>
+  <link id="xterm-css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" crossorigin="anonymous" />
 </head>
 <body>
 
@@ -561,9 +675,496 @@ export function renderDashboard(): string {
   </div>
 </div>
 
+<!-- ── Onboarding overlay ────────────────────────────────── -->
+<div id="onboarding-overlay">
+  <div class="ob-header">
+    <h1>🔧 lengcat-vst — Setup</h1>
+    <button class="btn btn-secondary" id="btn-skip-onboarding">Skip →</button>
+  </div>
+  <div class="ob-content">
+    <p class="ob-welcome">Welcome! Let's make sure your development environment is ready.</p>
+
+    <!-- Step 1: code-server -->
+    <div class="ob-step" id="ob-step-cs">
+      <div class="ob-step-header" id="ob-cs-header">
+        <span class="ob-step-num">1</span>
+        <span class="ob-step-title">code-server</span>
+        <span class="ob-step-badge ob-badge-missing" id="ob-cs-badge">checking…</span>
+      </div>
+      <div class="ob-step-body" id="ob-cs-body">
+        <p>code-server provides the VS Code editor in your browser.</p>
+        <div id="ob-cs-status"></div>
+        <div id="ob-cs-progress" style="display:none">
+          <div class="ob-progress-bar"><div class="ob-progress-fill" id="ob-cs-progress-fill" style="width:0%"></div></div>
+          <div class="ob-progress-text" id="ob-cs-progress-text">Preparing…</div>
+        </div>
+        <div class="ob-actions" id="ob-cs-actions"></div>
+        <div class="ob-upload-zone" id="ob-cs-upload" style="display:none">
+          <p>📦 Drop a <code>code-server-*.tar.gz</code> tarball here, or click to browse</p>
+          <p class="ob-hint">Download from <a href="https://github.com/coder/code-server/releases" target="_blank" style="color:var(--c-accent)">github.com/coder/code-server/releases</a></p>
+          <input type="file" id="ob-cs-file" accept=".tar.gz,.gz" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: leduo-patrol -->
+    <div class="ob-step" id="ob-step-lp">
+      <div class="ob-step-header" id="ob-lp-header">
+        <span class="ob-step-num">2</span>
+        <span class="ob-step-title">leduo-patrol</span>
+        <span class="ob-step-badge ob-badge-missing" id="ob-lp-badge">checking…</span>
+      </div>
+      <div class="ob-step-body" id="ob-lp-body">
+        <p>leduo-patrol is the project management dashboard.</p>
+        <div id="ob-lp-status"></div>
+        <div id="ob-lp-dir-section">
+          <div class="ob-section-title">Option A: Clone from Git</div>
+          <p>Run in the terminal below:</p>
+          <div class="ob-code" id="ob-lp-clone-cmd"></div>
+          <div class="ob-section-title">Option B: Upload source tarball</div>
+          <div class="ob-upload-zone" id="ob-lp-upload">
+            <p>📦 Drop a <code>leduo-patrol.tar.gz</code> source tarball here, or click to browse</p>
+            <p class="ob-hint">The tarball will be extracted and npm install will run automatically.</p>
+            <input type="file" id="ob-lp-file" accept=".tar.gz,.gz,.tgz" />
+          </div>
+        </div>
+        <div id="ob-lp-env-section" style="display:none">
+          <div class="ob-section-title">Create .env file</div>
+          <p>Create a <code>.env</code> file in the leduo-patrol directory with the following content:</p>
+          <div class="ob-code" id="ob-lp-env-example">PORT=3001
+LEDUO_PATROL_WEB_PORT=3002
+LEDUO_PATROL_ACCESS_KEY=your-secret-key</div>
+          <p class="ob-hint">You can use the terminal below to create this file, or edit it manually.</p>
+          <div class="ob-actions" id="ob-lp-env-actions"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div class="ob-terminal-wrap" id="ob-terminal-wrap">
+    <div class="ob-terminal-header" id="ob-terminal-header">
+      <span>Terminal</span>
+      <button class="btn btn-secondary btn-icon" id="btn-toggle-ob-terminal" style="padding:2px 8px;font-size:11px;">▼</button>
+    </div>
+    <div id="ob-term-container"></div>
+  </div>
+
+  <div class="ob-footer">
+    <button class="btn btn-secondary" id="btn-refresh-onboarding">↻ Refresh Status</button>
+    <button class="btn btn-primary" id="btn-continue-onboarding">Continue to Dashboard →</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js" crossorigin="anonymous"></script>
 <script>
 (function () {
   'use strict';
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── Onboarding Flow ─────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  var obOverlay = document.getElementById('onboarding-overlay');
+  var obTermContainer = document.getElementById('ob-term-container');
+  var obTermWrap = document.getElementById('ob-terminal-wrap');
+  var obTermHeader = document.getElementById('ob-terminal-header');
+  var obTerm = null;   // xterm.js Terminal instance
+  var obTermWs = null; // WebSocket to /api/terminal
+  var obDownloadPollTimer = null;
+
+  // ── Onboarding: check status on load ──────────────────────────────────
+  function obCheckStatus() {
+    return fetch('/api/onboarding/status')
+      .then(function(r) { return r.json(); })
+      .then(function(status) {
+        obRenderCodeServer(status.codeServer);
+        obRenderLeduoPatrol(status.leduoPatrol);
+        if (!status.ready) {
+          obOverlay.classList.add('visible');
+          obInitTerminal();
+        } else {
+          obOverlay.classList.remove('visible');
+        }
+        return status;
+      })
+      .catch(function() { /* API unavailable — skip onboarding */ });
+  }
+
+  // ── code-server step ──────────────────────────────────────────────────
+  function obRenderCodeServer(cs) {
+    var step = document.getElementById('ob-step-cs');
+    var badge = document.getElementById('ob-cs-badge');
+    var body = document.getElementById('ob-cs-body');
+    var statusEl = document.getElementById('ob-cs-status');
+    var actionsEl = document.getElementById('ob-cs-actions');
+    var uploadZone = document.getElementById('ob-cs-upload');
+    var progressEl = document.getElementById('ob-cs-progress');
+
+    if (cs.installed) {
+      step.classList.add('ready');
+      badge.textContent = '✓ v' + cs.version;
+      badge.className = 'ob-step-badge ob-badge-ready';
+      statusEl.innerHTML = '<p style="color:var(--c-green)">✓ code-server v' + cs.version + ' is installed and ready.</p>';
+      actionsEl.innerHTML = '';
+      uploadZone.style.display = 'none';
+      progressEl.style.display = 'none';
+      if (obDownloadPollTimer) { clearInterval(obDownloadPollTimer); obDownloadPollTimer = null; }
+    } else {
+      step.classList.remove('ready');
+      badge.textContent = 'not installed';
+      badge.className = 'ob-step-badge ob-badge-missing';
+      statusEl.innerHTML = '<p>code-server is not installed. Choose an option below:</p>';
+      actionsEl.innerHTML =
+        '<button class="btn btn-primary" id="ob-cs-download">⬇ Auto Download</button>' +
+        '<button class="btn btn-secondary" id="ob-cs-show-upload">📦 Upload Tarball</button>';
+      uploadZone.style.display = 'none';
+      progressEl.style.display = 'none';
+
+      document.getElementById('ob-cs-download').addEventListener('click', obStartDownload);
+      document.getElementById('ob-cs-show-upload').addEventListener('click', function() {
+        uploadZone.style.display = uploadZone.style.display === 'none' ? 'block' : 'none';
+      });
+
+      // Check if a download is already in progress
+      obPollDownloadOnce();
+    }
+  }
+
+  function obStartDownload() {
+    fetch('/api/onboarding/download-code-server', { method: 'POST' })
+      .then(function() { obStartDownloadPoll(); })
+      .catch(function(e) { alert('Failed to start download: ' + e.message); });
+  }
+
+  function obStartDownloadPoll() {
+    var progressEl = document.getElementById('ob-cs-progress');
+    var actionsEl = document.getElementById('ob-cs-actions');
+    var badge = document.getElementById('ob-cs-badge');
+
+    progressEl.style.display = 'block';
+    badge.textContent = 'downloading…';
+    badge.className = 'ob-step-badge ob-badge-downloading';
+    actionsEl.innerHTML =
+      '<button class="btn btn-danger" id="ob-cs-cancel">✕ Cancel Download</button>' +
+      '<button class="btn btn-secondary" id="ob-cs-show-upload2">📦 Upload Instead</button>';
+    document.getElementById('ob-cs-cancel').addEventListener('click', obCancelDownload);
+    document.getElementById('ob-cs-show-upload2').addEventListener('click', function() {
+      var uz = document.getElementById('ob-cs-upload');
+      uz.style.display = uz.style.display === 'none' ? 'block' : 'none';
+    });
+
+    if (obDownloadPollTimer) clearInterval(obDownloadPollTimer);
+    obDownloadPollTimer = setInterval(obPollDownloadOnce, 1000);
+  }
+
+  function obPollDownloadOnce() {
+    fetch('/api/onboarding/download-progress')
+      .then(function(r) { return r.json(); })
+      .then(function(p) {
+        if (p.downloading) {
+          var fill = document.getElementById('ob-cs-progress-fill');
+          var text = document.getElementById('ob-cs-progress-text');
+          document.getElementById('ob-cs-progress').style.display = 'block';
+          var pct = p.percent >= 0 ? p.percent : 0;
+          fill.style.width = pct + '%';
+          text.textContent = p.message || ('Downloading… ' + pct + '%');
+
+          var badge = document.getElementById('ob-cs-badge');
+          badge.textContent = 'downloading… ' + pct + '%';
+          badge.className = 'ob-step-badge ob-badge-downloading';
+
+          // Ensure poll is running
+          if (!obDownloadPollTimer) obStartDownloadPoll();
+        } else if (p.error) {
+          document.getElementById('ob-cs-progress').style.display = 'none';
+          if (obDownloadPollTimer) { clearInterval(obDownloadPollTimer); obDownloadPollTimer = null; }
+          document.getElementById('ob-cs-status').innerHTML =
+            '<p style="color:var(--c-danger)">Download failed: ' + p.error + '</p>';
+        } else if (!p.downloading && obDownloadPollTimer) {
+          clearInterval(obDownloadPollTimer);
+          obDownloadPollTimer = null;
+          // Refresh status — may now be installed
+          obCheckStatus();
+        }
+      })
+      .catch(function() {});
+  }
+
+  function obCancelDownload() {
+    fetch('/api/onboarding/cancel-download', { method: 'POST' })
+      .then(function() {
+        if (obDownloadPollTimer) { clearInterval(obDownloadPollTimer); obDownloadPollTimer = null; }
+        document.getElementById('ob-cs-progress').style.display = 'none';
+        obCheckStatus();
+      })
+      .catch(function() {});
+  }
+
+  // ── code-server upload ────────────────────────────────────────────────
+  (function() {
+    var zone = document.getElementById('ob-cs-upload');
+    var fileInput = document.getElementById('ob-cs-file');
+    zone.addEventListener('click', function(e) { if (e.target !== fileInput) fileInput.click(); });
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault(); zone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) obUploadCodeServer(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files.length > 0) obUploadCodeServer(fileInput.files[0]);
+    });
+  })();
+
+  function obUploadCodeServer(file) {
+    var statusEl = document.getElementById('ob-cs-status');
+    var progressEl = document.getElementById('ob-cs-progress');
+    var fill = document.getElementById('ob-cs-progress-fill');
+    var text = document.getElementById('ob-cs-progress-text');
+
+    // Cancel any ongoing download first
+    fetch('/api/onboarding/cancel-download', { method: 'POST' }).catch(function(){});
+    if (obDownloadPollTimer) { clearInterval(obDownloadPollTimer); obDownloadPollTimer = null; }
+
+    statusEl.innerHTML = '<p>Uploading ' + file.name + '…</p>';
+    progressEl.style.display = 'block';
+    fill.style.width = '0%';
+    text.textContent = 'Uploading…';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/onboarding/upload-code-server?filename=' + encodeURIComponent(file.name));
+    xhr.upload.addEventListener('progress', function(e) {
+      if (e.lengthComputable) {
+        var pct = Math.round((e.loaded / e.total) * 100);
+        fill.style.width = pct + '%';
+        text.textContent = 'Uploading… ' + pct + '%';
+      }
+    });
+    xhr.addEventListener('load', function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        progressEl.style.display = 'none';
+        obCheckStatus();
+      } else {
+        text.textContent = 'Upload failed: ' + xhr.responseText;
+        fill.style.width = '100%';
+        fill.style.background = 'var(--c-danger)';
+      }
+    });
+    xhr.addEventListener('error', function() {
+      text.textContent = 'Upload failed — network error';
+    });
+    xhr.send(file);
+  }
+
+  // ── leduo-patrol step ─────────────────────────────────────────────────
+  function obRenderLeduoPatrol(lp) {
+    var step = document.getElementById('ob-step-lp');
+    var badge = document.getElementById('ob-lp-badge');
+    var statusEl = document.getElementById('ob-lp-status');
+    var dirSection = document.getElementById('ob-lp-dir-section');
+    var envSection = document.getElementById('ob-lp-env-section');
+    var cloneCmd = document.getElementById('ob-lp-clone-cmd');
+    var envActions = document.getElementById('ob-lp-env-actions');
+
+    var envCmd = "cat > " + lp.dir + "/.env << 'EOF'\\nPORT=3001\\nLEDUO_PATROL_WEB_PORT=3002\\nLEDUO_PATROL_ACCESS_KEY=changeme\\nEOF\\n";
+
+    function attachEnvButton() {
+      var btn = document.getElementById('ob-lp-create-env');
+      if (btn) {
+        btn.addEventListener('click', function() { if (obTerm) obTermWrite(envCmd); });
+      }
+    }
+
+    if (lp.dirExists && lp.envFileExists) {
+      step.classList.add('ready');
+      badge.textContent = '✓ Ready';
+      badge.className = 'ob-step-badge ob-badge-ready';
+      statusEl.innerHTML = '<p style="color:var(--c-green)">✓ leduo-patrol is set up at <code>' + lp.dir + '</code></p>';
+      dirSection.style.display = 'none';
+      envSection.style.display = 'none';
+    } else if (lp.dirExists && !lp.envFileExists) {
+      step.classList.remove('ready');
+      badge.textContent = '.env missing';
+      badge.className = 'ob-step-badge ob-badge-missing';
+      statusEl.innerHTML = '<p>Directory found at <code>' + lp.dir + '</code>, but <code>.env</code> file is missing.</p>';
+      dirSection.style.display = 'none';
+      envSection.style.display = 'block';
+      envActions.innerHTML =
+        '<button class="btn btn-primary" id="ob-lp-create-env">Create default .env</button>';
+      attachEnvButton();
+    } else {
+      step.classList.remove('ready');
+      badge.textContent = 'not found';
+      badge.className = 'ob-step-badge ob-badge-missing';
+      statusEl.innerHTML = '<p>Directory not found: <code>' + lp.dir + '</code></p>';
+      dirSection.style.display = 'block';
+      envSection.style.display = 'block';
+      cloneCmd.textContent =
+        'git clone <your-repo-url> ' + lp.dir + '\\n' +
+        'cd ' + lp.dir + ' && npm install';
+      envActions.innerHTML =
+        '<button class="btn btn-primary" id="ob-lp-create-env">Create default .env (after install)</button>';
+      attachEnvButton();
+    }
+  }
+
+  // ── leduo-patrol upload ───────────────────────────────────────────────
+  (function() {
+    var zone = document.getElementById('ob-lp-upload');
+    var fileInput = document.getElementById('ob-lp-file');
+    zone.addEventListener('click', function(e) { if (e.target !== fileInput) fileInput.click(); });
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault(); zone.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) obUploadLeduoPatrol(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files.length > 0) obUploadLeduoPatrol(fileInput.files[0]);
+    });
+  })();
+
+  function obUploadLeduoPatrol(file) {
+    var statusEl = document.getElementById('ob-lp-status');
+    statusEl.innerHTML = '<p>Uploading and extracting ' + file.name + '…</p>';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/onboarding/upload-leduo-patrol');
+    xhr.addEventListener('load', function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          var result = JSON.parse(xhr.responseText);
+          statusEl.innerHTML = '<p style="color:var(--c-green)">✓ Extracted to <code>' + result.dir + '</code>' +
+            (result.npmInstalled ? ' — npm install completed.' : ' — run <code>npm install</code> in the terminal.') + '</p>';
+        } catch(e) {
+          statusEl.innerHTML = '<p style="color:var(--c-green)">✓ Uploaded successfully.</p>';
+        }
+        setTimeout(function() { obCheckStatus(); }, 500);
+      } else {
+        statusEl.innerHTML = '<p style="color:var(--c-danger)">Upload failed: ' + xhr.responseText + '</p>';
+      }
+    });
+    xhr.addEventListener('error', function() {
+      statusEl.innerHTML = '<p style="color:var(--c-danger)">Upload failed — network error</p>';
+    });
+    xhr.send(file);
+  }
+
+  // ── Terminal (xterm.js) ───────────────────────────────────────────────
+  function obInitTerminal() {
+    if (obTerm) return; // already initialised
+
+    // Try xterm.js first (loaded from CDN), fall back to textarea
+    if (typeof Terminal !== 'undefined' && typeof FitAddon !== 'undefined') {
+      obTerm = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, monospace",
+        theme: {
+          background: '#1a1b26',
+          foreground: '#c0caf5',
+          cursor: '#c0caf5',
+          selectionBackground: 'rgba(137,180,250,0.3)',
+        },
+      });
+      var fitAddon = new FitAddon.FitAddon();
+      obTerm.loadAddon(fitAddon);
+      obTerm.open(obTermContainer);
+      fitAddon.fit();
+      window.addEventListener('resize', function() { try { fitAddon.fit(); } catch(e) {} });
+      new ResizeObserver(function() { try { fitAddon.fit(); } catch(e) {} }).observe(obTermWrap);
+    } else {
+      // Fallback: simple textarea
+      var ta = document.createElement('textarea');
+      ta.className = 'ob-xterm-fallback';
+      ta.placeholder = 'Terminal (xterm.js failed to load from CDN)\\nType commands and press Enter…';
+      obTermContainer.appendChild(ta);
+      obTerm = {
+        _ta: ta,
+        _buf: '',
+        write: function(data) { ta.value += data; ta.scrollTop = ta.scrollHeight; },
+        onData: function(cb) {
+          ta.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+              cb(ta.value.split('\\n').pop() + '\\n');
+            }
+          });
+        },
+        dispose: function() { ta.remove(); },
+      };
+    }
+
+    // Connect WebSocket
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    obTermWs = new WebSocket(proto + '://' + location.host + '/api/terminal');
+    obTermWs.onopen = function() {
+      if (obTerm.onData) {
+        obTerm.onData(function(data) {
+          if (obTermWs && obTermWs.readyState === WebSocket.OPEN) {
+            obTermWs.send(data);
+          }
+        });
+      }
+    };
+    obTermWs.onmessage = function(e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'exit') {
+          obTerm.write('\\r\\n[Process exited with code ' + msg.code + ']\\r\\n');
+          return;
+        }
+      } catch(err) { /* not JSON — raw terminal data */ }
+      obTerm.write(e.data);
+    };
+    obTermWs.onclose = function() {
+      obTerm.write('\\r\\n[Connection closed]\\r\\n');
+    };
+  }
+
+  // Write a command to the terminal (used by action buttons)
+  function obTermWrite(cmd) {
+    if (obTermWs && obTermWs.readyState === WebSocket.OPEN) {
+      obTermWs.send(cmd);
+    }
+  }
+
+  // ── Terminal toggle ───────────────────────────────────────────────────
+  obTermHeader.addEventListener('click', function() {
+    obTermWrap.classList.toggle('collapsed');
+    document.getElementById('btn-toggle-ob-terminal').textContent =
+      obTermWrap.classList.contains('collapsed') ? '▲' : '▼';
+  });
+
+  // ── Onboarding buttons ────────────────────────────────────────────────
+  document.getElementById('btn-skip-onboarding').addEventListener('click', function() {
+    obOverlay.classList.remove('visible');
+    try { localStorage.setItem('onboarding-skipped', 'true'); } catch(e) {}
+    if (obTermWs) { obTermWs.close(); obTermWs = null; }
+    if (obDownloadPollTimer) { clearInterval(obDownloadPollTimer); obDownloadPollTimer = null; }
+  });
+  document.getElementById('btn-continue-onboarding').addEventListener('click', function() {
+    obOverlay.classList.remove('visible');
+    try { localStorage.setItem('onboarding-skipped', 'true'); } catch(e) {}
+    if (obTermWs) { obTermWs.close(); obTermWs = null; }
+    if (obDownloadPollTimer) { clearInterval(obDownloadPollTimer); obDownloadPollTimer = null; }
+  });
+  document.getElementById('btn-refresh-onboarding').addEventListener('click', function() {
+    obCheckStatus();
+  });
+
+  // Auto-check onboarding on load (unless previously skipped)
+  try {
+    if (localStorage.getItem('onboarding-skipped') !== 'true') {
+      obCheckStatus();
+    }
+  } catch(e) {
+    obCheckStatus();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── Dashboard (existing code below) ─────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
 
   // ── State ────────────────────────────────────────────────────
   let sessions = [];
