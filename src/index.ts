@@ -29,6 +29,8 @@
 
 import { Command } from 'commander';
 import { randomBytes } from 'crypto';
+import * as os from 'os';
+import * as path from 'path';
 import { loadConfig, mergeConfig, BackendType, TunnelConfig, PartialBackendConfig, buildBackendConfig } from './config';
 import { createTunnelServer } from './server';
 import { SessionManager } from './session';
@@ -43,6 +45,8 @@ import {
 } from './download';
 
 const program = new Command();
+const LENGCAT_DATA_DIR = path.join(os.homedir(), '.lengcat-vst');
+const SESSION_SAVE_PATH = path.join(LENGCAT_DATA_DIR, 'sessions.json');
 const LEDUO_SESSION_PATH_PREFIX = '/_leduo-patrol';
 const LEDUO_ACCESS_KEY_BYTES = 24;
 
@@ -189,6 +193,7 @@ async function main(): Promise<void> {
 
   // Build a session manager so the dashboard (/_ui) is always available.
   const sessionMgr = new SessionManager();
+  sessionMgr.setSavePath(SESSION_SAVE_PATH);
   const leduoAccessKey =
     opts.leduoAccessKey ??
     process.env.LEDUO_PATROL_ACCESS_KEY ??
@@ -210,6 +215,13 @@ async function main(): Promise<void> {
   }));
   for (const backend of config.backends) {
     sessionMgr.register(backend);
+  }
+
+  // Restore previously persisted sessions (created via the dashboard).
+  // Sessions that already match a CLI-registered backend are skipped.
+  const restored = sessionMgr.restore();
+  if (restored > 0) {
+    console.log(`  Restored ${restored} session(s) from ${SESSION_SAVE_PATH}`);
   }
 
   // ── Onboarding: ensure code-server is installed before launching ──────────

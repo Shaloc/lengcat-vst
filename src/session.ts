@@ -12,6 +12,8 @@
  */
 
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
 import { BackendConfig, BackendType } from './config';
 import { startBackend, ManagedBackend } from './backends';
 
@@ -59,6 +61,82 @@ export function _resetCounter(): void {
  */
 export class SessionManager extends EventEmitter {
   private readonly _sessions = new Map<string, Session>();
+  private _savePath: string | undefined;
+
+  /**
+   * Enables session persistence.  When a save path is set, sessions are
+   * automatically written to disk on every mutation (register, launch, stop,
+   * remove) so that they survive process restarts.
+   *
+   * @param filePath  Absolute path to the JSON file used for persistence.
+   */
+  setSavePath(filePath: string): void {
+    this._savePath = filePath;
+  }
+
+  /**
+   * Persists the current session list to disk (non-blocking, best-effort).
+   * Only the session config is persisted — runtime state such as the process
+   * handle and PID is not saved because it cannot survive a restart.
+   */
+  private _save(): void {
+    if (!this._savePath) return;
+    try {
+      const dir = path.dirname(this._savePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const data = this.list().map((s) => ({
+        config: s.config,
+        folder: s.folder,
+      }));
+      fs.writeFileSync(this._savePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch {
+      // Best-effort — do not crash the server if the save fails.
+    }
+  }
+
+  /**
+   * Restores sessions from the persistence file on disk.
+   * Each restored session is registered in the `stopped` state — the caller
+   * is responsible for launching them if desired.
+   *
+   * Sessions whose `pathPrefix` or `type + host + port` already match an
+   * existing registered session are skipped to avoid duplicates when the
+   * same backends are also registered from CLI flags.
+   *
+   * @returns The number of sessions restored.
+   */
+  restore(): number {
+    if (!this._savePath || !fs.existsSync(this._savePath)) return 0;
+    let entries: Array<{ config: BackendConfig; folder?: string }>;
+    try {
+      entries = JSON.parse(fs.readFileSync(this._savePath, 'utf-8'));
+      if (!Array.isArray(entries)) return 0;
+    } catch {
+      // Invalid or corrupted persistence file — treat as empty.
+      return 0;
+    }
+    const existing = this.list();
+    let restored = 0;
+    for (const entry of entries) {
+      if (!entry.config || typeof entry.config.type !== 'string') continue;
+      // Skip if already registered (same pathPrefix, or same type+host+port).
+      const dup = existing.some(
+        (s) =>
+          (entry.config.pathPrefix && s.pathPrefix === entry.config.pathPrefix) ||
+          (s.type === entry.config.type &&
+            s.host === entry.config.host &&
+            s.port === entry.config.port)
+      );
+      if (dup) continue;
+      const cfg = { ...entry.config };
+      if (entry.folder) cfg.folder = entry.folder;
+      this.register(cfg);
+      restored++;
+    }
+    return restored;
+  }
 
   /**
    * Registers a backend config as a new session.
@@ -87,6 +165,7 @@ export class SessionManager extends EventEmitter {
       accessKey: resolvedConfig.accessKey,
     };
     this._sessions.set(id, session);
+    this._save();
     return session;
   }
 
@@ -130,6 +209,7 @@ export class SessionManager extends EventEmitter {
     if (folder !== undefined) {
       session.folder = folder || undefined;
       session.config = { ...session.config, folder: folder || undefined };
+      this._save();
     }
 
     session.status = 'starting';
@@ -190,6 +270,7 @@ export class SessionManager extends EventEmitter {
       session.managed.stop();
     }
     this._sessions.delete(id);
+    this._save();
     return true;
   }
 

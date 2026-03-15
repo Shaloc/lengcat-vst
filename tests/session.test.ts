@@ -4,6 +4,9 @@
 
 import { SessionManager, _resetCounter } from '../src/session';
 import { buildBackendConfig } from '../src/config';
+import * as os from 'os';
+import * as nodePath from 'path';
+import * as fs from 'fs';
 
 // Reset the session ID counter before each test so IDs are deterministic.
 beforeEach(() => { _resetCounter(); });
@@ -207,6 +210,97 @@ describe('SessionManager.launch — port conflict', () => {
 
     jest.resetModules();
     jest.restoreAllMocks();
+  });
+});
+
+// ── persistence ──────────────────────────────────────────────────────────────
+
+describe('SessionManager persistence', () => {
+  let tmpDir: string;
+  let savePath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'lvst-test-'));
+    savePath = nodePath.join(tmpDir, 'sessions.json');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('saves sessions to disk on register', () => {
+    const mgr = new SessionManager();
+    mgr.setSavePath(savePath);
+    mgr.register(makeConfig(9001));
+    expect(fs.existsSync(savePath)).toBe(true);
+    const data = JSON.parse(fs.readFileSync(savePath, 'utf-8'));
+    expect(data).toHaveLength(1);
+    expect(data[0].config.port).toBe(9001);
+  });
+
+  it('restores sessions from disk', () => {
+    // Save from one manager
+    const mgr1 = new SessionManager();
+    mgr1.setSavePath(savePath);
+    mgr1.register(makeConfig(9001));
+    mgr1.register(makeConfig(9002));
+
+    // Restore into a fresh manager
+    _resetCounter();
+    const mgr2 = new SessionManager();
+    mgr2.setSavePath(savePath);
+    const restored = mgr2.restore();
+    expect(restored).toBe(2);
+    expect(mgr2.list()).toHaveLength(2);
+    expect(mgr2.list()[0].port).toBe(9001);
+    expect(mgr2.list()[1].port).toBe(9002);
+    expect(mgr2.list()[0].status).toBe('stopped');
+  });
+
+  it('skips duplicate sessions on restore', () => {
+    // Save one session
+    const mgr1 = new SessionManager();
+    mgr1.setSavePath(savePath);
+    mgr1.register(makeConfig(9001));
+
+    // Pre-register the same type+host+port then restore
+    _resetCounter();
+    const mgr2 = new SessionManager();
+    mgr2.setSavePath(savePath);
+    mgr2.register(makeConfig(9001));
+    const restored = mgr2.restore();
+    expect(restored).toBe(0);
+    expect(mgr2.list()).toHaveLength(1); // no duplicate
+  });
+
+  it('removes session from persistence on remove()', () => {
+    const mgr = new SessionManager();
+    mgr.setSavePath(savePath);
+    const s = mgr.register(makeConfig(9001));
+    mgr.register(makeConfig(9002));
+    mgr.remove(s.id);
+    const data = JSON.parse(fs.readFileSync(savePath, 'utf-8'));
+    expect(data).toHaveLength(1);
+    expect(data[0].config.port).toBe(9002);
+  });
+
+  it('returns 0 when save file does not exist', () => {
+    const mgr = new SessionManager();
+    mgr.setSavePath(nodePath.join(tmpDir, 'nonexistent.json'));
+    expect(mgr.restore()).toBe(0);
+  });
+
+  it('returns 0 when save file contains invalid JSON', () => {
+    fs.writeFileSync(savePath, '{{not json}}', 'utf-8');
+    const mgr = new SessionManager();
+    mgr.setSavePath(savePath);
+    expect(mgr.restore()).toBe(0);
+  });
+
+  it('does not save when no savePath is set', () => {
+    const mgr = new SessionManager();
+    mgr.register(makeConfig(9001));
+    expect(fs.existsSync(savePath)).toBe(false);
   });
 });
 
