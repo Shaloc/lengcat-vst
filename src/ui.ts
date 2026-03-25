@@ -1553,6 +1553,7 @@ LEDUO_PATROL_ACCESS_KEY=your-secret-key</div>
       '</p>' +
       '<div style="margin-bottom:14px;">' +
         '<button class="btn btn-primary" id="btn-download-cert-action"><svg class="icon" viewBox="0 0 24 24" style="fill:currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7ZM5 18v2h14v-2H5Z"/></svg> Export Certificate (PEM)</button>' +
+        '<button class="btn btn-secondary" id="btn-download-cert-ios-action" style="margin-left:8px;"><svg class="icon" viewBox="0 0 24 24" style="fill:currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7ZM5 18v2h14v-2H5Z"/></svg> Export for iPhone/iPad (.cer)</button>' +
       '</div>' +
       '<div style="font-size:11px;color:#6c7086;line-height:1.9;">' +
         '<strong style="color:#89b4fa;">Linux — Debian/Ubuntu (system-wide):</strong><br>' +
@@ -1569,11 +1570,18 @@ LEDUO_PATROL_ACCESS_KEY=your-secret-key</div>
         '</code><br>' +
         '<strong style="color:#89b4fa;">Windows:</strong><br>' +
         'Double-click the <code style="background:#313244;padding:2px 4px;border-radius:3px;">.pem</code> file → ' +
-        'Install Certificate → Local Machine → Trusted Root Certification Authorities' +
+        'Install Certificate → Local Machine → Trusted Root Certification Authorities<br>' +
+        '<strong style="color:#89b4fa;">iPhone / iPad (iOS / iPadOS):</strong><br>' +
+        '1) Tap <em>Export for iPhone/iPad (.cer)</em> in Safari and install the downloaded profile/certificate.<br>' +
+        '2) Open <em>Settings → General → About → Certificate Trust Settings</em>.<br>' +
+        '3) Enable full trust for <code style="background:#313244;padding:2px 4px;border-radius:3px;">lengcat-vst-ca.cer</code>.' +
       '</div>';
 
     document.getElementById('btn-download-cert-action').addEventListener('click', () => {
       window.location.href = '/api/tls/cert';
+    });
+    document.getElementById('btn-download-cert-ios-action').addEventListener('click', () => {
+      window.location.href = '/api/tls/cert/ios';
     });
   }
   function closeCertModal() {
