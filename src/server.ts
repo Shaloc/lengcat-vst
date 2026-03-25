@@ -640,6 +640,29 @@ async function handleUiRequest(
     return;
   }
 
+  // Export TLS certificate in DER format (.cer) for iPhone/iPad import.
+  // iOS/iPadOS can install this directly from Safari's download UI.
+  if (method === 'GET' && path === '/api/tls/cert/ios') {
+    if (!tls) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No TLS certificate available (server is running over HTTP).' }));
+      return;
+    }
+
+    const pemBody = tls.cert
+      .replace(/-----BEGIN CERTIFICATE-----/g, '')
+      .replace(/-----END CERTIFICATE-----/g, '')
+      .replace(/\s+/g, '');
+
+    const der = Buffer.from(pemBody, 'base64');
+    res.writeHead(200, {
+      'Content-Type': 'application/pkix-cert',
+      'Content-Disposition': 'attachment; filename="lengcat-vst-ca.cer"',
+    });
+    res.end(der);
+    return;
+  }
+
   // ── Onboarding API ──────────────────────────────────────────────────────────
 
   // Onboarding status — what's installed/missing
@@ -943,7 +966,7 @@ export function createTunnelServer(
 
     // ── Dashboard / session-management API ──
     // When a SessionManager is active, the root URL serves the dashboard and
-    // the specific /api/sessions* and /api/tls/cert routes serve the REST API.
+    // the specific /api/sessions* and /api/tls/cert* routes serve the REST API.
     // Legacy /_ui paths are also accepted.
     //
     // IMPORTANT: only the exact dashboard-API paths are intercepted here.
@@ -954,6 +977,7 @@ export function createTunnelServer(
       url === '/_ui' || url === '/_ui/' || url.startsWith('/_ui/') ||
       rawPath === '/api/sessions' || rawPath.startsWith('/api/sessions/') ||
       rawPath === '/api/tls/cert' ||
+      rawPath === '/api/tls/cert/ios' ||
       rawPath.startsWith('/api/onboarding/')
     )) {
       void handleUiRequest(req, res, sessionMgr, tls);
@@ -1042,7 +1066,8 @@ export function createTunnelServer(
       url === '/' ||
       url.startsWith('/_ui/') ||
       wsRawPath === '/api/sessions' || wsRawPath.startsWith('/api/sessions/') ||
-      wsRawPath === '/api/tls/cert'
+      wsRawPath === '/api/tls/cert' ||
+      wsRawPath === '/api/tls/cert/ios'
     )) {
       socket.write('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n');
       socket.destroy();

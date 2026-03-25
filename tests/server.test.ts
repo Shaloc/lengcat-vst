@@ -517,6 +517,15 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
     await tunnel.close();
   });
 
+  it('GET /api/tls/cert/ios returns 404 when server has no TLS credentials', async () => {
+    const { tunnel, port } = await startUiServer();
+    const r = await httpGet(`http://127.0.0.1:${port}/api/tls/cert/ios`);
+    expect(r.status).toBe(404);
+    const body = JSON.parse(r.body) as { error: string };
+    expect(body.error).toMatch(/No TLS certificate/i);
+    await tunnel.close();
+  });
+
   it('GET /api/tls/cert returns the PEM certificate when TLS is configured', async () => {
     const mgr = new SessionManager();
     const config = mergeConfig({ host: '127.0.0.1', port: 0, auth: false, backends: [{ type: 'vscode' as const, port: 8000 }] });
@@ -540,6 +549,43 @@ describe('TunnelServer (/ dashboard and /api/* API)', () => {
       req.end();
     });
     expect(status).toBe(200);
+    await tunnel.close();
+  });
+
+  it('GET /api/tls/cert/ios returns DER certificate when TLS is configured', async () => {
+    const mgr = new SessionManager();
+    const config = mergeConfig({ host: '127.0.0.1', port: 0, auth: false, backends: [{ type: 'vscode' as const, port: 8000 }] });
+    const { loadOrGenerateTls } = await import('../src/tls');
+    const tlsCreds = await loadOrGenerateTls();
+    const tunnel = createTunnelServer(config, mgr, tlsCreds);
+    await new Promise<void>((resolve, reject) => {
+      tunnel.httpServer.once('error', reject);
+      tunnel.httpServer.listen(0, '127.0.0.1', () => { tunnel.httpServer.off('error', reject); resolve(); });
+    });
+    const addr = tunnel.httpServer.address() as { port: number };
+
+    const result = await new Promise<{ status: number; contentType?: string; body: Buffer }>((resolve, reject) => {
+      const req = https.request(
+        { hostname: '127.0.0.1', port: addr.port, path: '/api/tls/cert/ios', ca: tlsCreds.cert },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => resolve({
+            status: res.statusCode ?? 0,
+            contentType: res.headers['content-type'],
+            body: Buffer.concat(chunks),
+          }));
+        }
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.contentType).toBe('application/pkix-cert');
+    // DER is binary; should not include PEM markers.
+    expect(result.body.toString('utf-8')).not.toContain('BEGIN CERTIFICATE');
+    expect(result.body.length).toBeGreaterThan(0);
     await tunnel.close();
   });
 

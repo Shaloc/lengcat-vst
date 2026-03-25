@@ -88,6 +88,12 @@ describe('renderDashboard', () => {
     expect(html).toContain('/api/tls/cert');
   });
 
+  it('contains iPhone/iPad certificate export guidance and API path', () => {
+    expect(html).toContain('/api/tls/cert/ios');
+    expect(html).toContain('Export for iPhone/iPad (.cer)');
+    expect(html).toContain('Certificate Trust Settings');
+  });
+
   it('contains the launch-with-folder modal', () => {
     expect(html).toContain('id="launch-modal-backdrop"');
     expect(html).toContain('id="launch-folder"');
