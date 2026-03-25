@@ -123,8 +123,26 @@ export async function loadOrGenerateTls(
   expiryDate.setFullYear(expiryDate.getFullYear() + 1);
 
   const pems = await generate(attrs, {
+    algorithm: 'sha256',
     notAfterDate: expiryDate,
     extensions: [
+      {
+        name: 'basicConstraints',
+        cA: true,
+        critical: true,
+      },
+      {
+        name: 'keyUsage',
+        digitalSignature: true,
+        keyEncipherment: true,
+        keyCertSign: true,
+        cRLSign: true,
+        critical: true,
+      },
+      {
+        name: 'extKeyUsage',
+        serverAuth: true,
+      },
       {
         name: 'subjectAltName',
         altNames,

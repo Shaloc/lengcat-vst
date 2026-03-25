@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { X509Certificate } from 'crypto';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -140,5 +141,12 @@ describe('loadOrGenerateTls', () => {
     const stored = JSON.parse(fs.readFileSync(metaFile, 'utf-8')) as string[];
     expect(stored).toEqual([]);
   });
-});
 
+  it('generates a CA certificate suitable for manual iOS trust enablement', async () => {
+    const { loadOrGenerateTls } = await importTls();
+    const creds = await loadOrGenerateTls();
+
+    const cert = new X509Certificate(creds.cert);
+    expect(cert.ca).toBe(true);
+  });
+});
