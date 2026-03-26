@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
+import { X509Certificate } from 'crypto';
 import { generate, type SubjectAltNameEntry } from 'selfsigned';
 
 /** PEM-encoded TLS credentials. */
@@ -83,6 +84,20 @@ export async function loadOrGenerateTls(
     if (!fs.existsSync(cachedCert) || !fs.existsSync(cachedKey)) {
       return false;
     }
+    // Compatibility guard:
+    // Old versions generated a self-signed *leaf* cert (CA=false). iOS does
+    // not expose "Enable full trust for root certificates" for that case.
+    // If we detect such a cached cert, force regeneration to a CA cert.
+    try {
+      const certPem = fs.readFileSync(cachedCert, 'utf-8');
+      const cert = new X509Certificate(certPem);
+      if (!cert.ca) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
     const stored = readCachedDomains();
     if (stored === null) {
       // Legacy cache without a manifest — valid only when no extra domains
@@ -123,8 +138,26 @@ export async function loadOrGenerateTls(
   expiryDate.setFullYear(expiryDate.getFullYear() + 1);
 
   const pems = await generate(attrs, {
+    algorithm: 'sha256',
     notAfterDate: expiryDate,
     extensions: [
+      {
+        name: 'basicConstraints',
+        cA: true,
+        critical: true,
+      },
+      {
+        name: 'keyUsage',
+        digitalSignature: true,
+        keyEncipherment: true,
+        keyCertSign: true,
+        cRLSign: true,
+        critical: true,
+      },
+      {
+        name: 'extKeyUsage',
+        serverAuth: true,
+      },
       {
         name: 'subjectAltName',
         altNames,
