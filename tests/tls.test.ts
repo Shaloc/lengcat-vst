@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { X509Certificate } from 'crypto';
+import { generate } from 'selfsigned';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -148,5 +149,35 @@ describe('loadOrGenerateTls', () => {
 
     const cert = new X509Certificate(creds.cert);
     expect(cert.ca).toBe(true);
+  });
+
+  it('regenerates legacy cached non-CA certificates for iOS trust compatibility', async () => {
+    const attrs = [{ name: 'commonName', value: 'lengcat-vst' }];
+    const legacy = await generate(attrs, {
+      extensions: [
+        {
+          name: 'subjectAltName',
+          altNames: [
+            { type: 2, value: 'localhost' },
+            { type: 7, ip: '127.0.0.1' },
+            { type: 7, ip: '0.0.0.0' },
+          ],
+        },
+      ],
+    });
+
+    fs.writeFileSync(path.join(tmpDir, 'cert.pem'), legacy.cert);
+    fs.writeFileSync(path.join(tmpDir, 'key.pem'), legacy.private);
+    fs.writeFileSync(path.join(tmpDir, 'domains.json'), JSON.stringify([]));
+
+    const legacyCert = new X509Certificate(legacy.cert);
+    expect(legacyCert.ca).toBe(false);
+
+    const { loadOrGenerateTls } = await importTls();
+    const creds = await loadOrGenerateTls();
+    const upgraded = new X509Certificate(creds.cert);
+
+    expect(upgraded.ca).toBe(true);
+    expect(creds.cert).not.toBe(legacy.cert);
   });
 });
